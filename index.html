@@ -238,14 +238,19 @@ import { GLTFLoader } from './vendor/GLTFLoader.js';
  * ------------------------------------------------------------------ */
 const CFG = {
   rail:    { speed: 12, total: 2100 },          // 自動前進（-Z方向）
-  player:  { speed: 14.5, bx: 8.2, by: 4.6, radius: 0.62, invuln: 1.0, lerp: 12 },
+  /* invuln: 被弾後の無敵（点滅）時間。0 = 無敵なし。
+     hitTick: ダメージ判定の最小間隔。無敵ではなく「1回の接触で僚機が
+              フレーム数ぶん一気に溶ける」のを防ぐためだけのもの。 */
+  player:  { speed: 14.5, bx: 8.2, by: 4.6, radius: 0.62, invuln: 0, hitTick: 0.12, lerp: 12 },
   cam:     { fov: 50, back: 8.6, up: 1.95, lookAhead: 15, follow: 0.42 },
   shot:    { rate: 0.105, speed: 115, dmg: 5, radius: .34 },   // 通常ショット＝最弱
-  laser:   { dmg: 62, travel: 0.34, radius: .75 },             // ロックオンレーザー＝最強
+  laser:   { dmg: 140, travel: 0.34, radius: .75 },            // ロックオンレーザー＝最強（雑魚は必ず1発）
   homing:  { dmg: 44, speed: 34, turn: 5.2, life: 4.0, radius: .62 }, // 僚機弾（レーザーより明確に遅い）
   lock:    { base: 6, upgraded: 10, pickPx: 46 },
   wing:    { max: 10, start: 3, radius: 3.4, spin: 1.25, fireRate: 0.42 },
   bomb:    { cooldown: 5.0 },
+  boss:    { tentacleCost: 3 },   // 触手を伸ばす攻撃で失う僚機の数
+
   enemyBullet: { radius: .34 },
 };
 /* 難易度。NORMAL は初期バランスのまま、HARD 以降は敵数・耐久・弾幕を一気に上げる。
@@ -256,7 +261,7 @@ const CFG = {
 const DIFF = {
   normal: {
     key: 'normal', label: 'NORMAL', color: '#6fe8ff',
-    hp: 1,    bossHp: 1,        bulletSpeed: 1,    fireRate: 1,    spread: 1,
+    hp: 1,    bossHp: 3,        bulletSpeed: 1,    fireRate: 1,    spread: 1,
     count: 1, fillerRate: 0,    fillerCap: 0,  fillerInterval: 0,
     volleyGap: 0.045, speedJitter: 0.12, extraPattern: 0,
   },
@@ -929,7 +934,7 @@ function disposeLaser(L) { L.line.visible = false; L.head.visible = false; laser
 const Player = {
   obj: null, group: null, alive: false,
   x: 0, y: 0, vx: 0, vy: 0, z: 0,
-  invuln: 0, autoShot: false, shotTimer: 0, blink: 0,
+  invuln: 0, hitTick: 0, autoShot: false, shotTimer: 0, blink: 0,
   jet: null,
   init() {
     this.group = new THREE.Group();
@@ -948,7 +953,7 @@ const Player = {
   },
   reset() {
     this.x = 0; this.y = 0; this.vx = 0; this.vy = 0; this.z = 0;
-    this.invuln = 0; this.autoShot = false; this.shotTimer = 0; this.alive = true; this.blink = 0;
+    this.invuln = 0; this.hitTick = 0; this.autoShot = false; this.shotTimer = 0; this.alive = true; this.blink = 0;
     this.group.visible = true; setOpacity(this.obj, 1);
     this.group.position.set(0, 0, 0);
   },
@@ -987,12 +992,17 @@ const Player = {
 
     playerLight.position.set(this.x, this.y + 1.2, this.z + 1.2);
 
-    // 無敵時間＋点滅
+    // 無敵時間＋点滅（invuln が 0 なら点滅もしない）
+    if (this.hitTick > 0) this.hitTick = Math.max(0, this.hitTick - dt);
     if (this.invuln > 0) {
       this.invuln = Math.max(0, this.invuln - dt); this.blink += dt;
       const on = (this.blink * 14) % 2 < 1;
       setOpacity(this.obj, on ? .28 : 1);
       if (this.invuln <= 0) { setOpacity(this.obj, 1); this.blink = 0; }
+    } else if (this.hitTick > 0) {
+      setOpacity(this.obj, .45);          // 無敵なしでも被弾は見えるように一瞬だけ薄く
+    } else if (this.blink !== 0) {
+      setOpacity(this.obj, 1); this.blink = 0;
     }
     // 通常ショット（正面へオートファイア）
     if (this.autoShot) {
@@ -1007,28 +1017,32 @@ const Player = {
     } else this.shotTimer = 0;
 
     // 敵本体との接触判定
-    if (this.invuln <= 0) {
+    if (this.invuln <= 0 && this.hitTick <= 0) {
       for (const e of Enemies.list) {
         if (!e.alive || e.spawning > 0) continue;
         if (e.obj.position.distanceTo(this.group.position) < e.radius + CFG.player.radius) { this.hit(); break; }
       }
-      if (Boss.active && Boss.alive && this.invuln <= 0) {
+      if (Boss.active && Boss.alive && this.invuln <= 0 && this.hitTick <= 0) {
         if (Boss.group.position.distanceTo(this.group.position) < Boss.bodyRadius + CFG.player.radius) this.hit();
+        // 触手を伸ばす攻撃は重い一撃（僚機3体ぶん）
         for (const t of Boss.lunges) {
-          if (t.active && t.tip.distanceTo(this.group.position) < 1.5 + CFG.player.radius) { this.hit(); break; }
+          if (t.active && t.tip.distanceTo(this.group.position) < 1.5 + CFG.player.radius) { this.hit(CFG.boss.tentacleCost); break; }
         }
       }
     }
   },
-  hit() {
-    if (this.invuln > 0 || !this.alive) return;
-    // 被弾 → 僚機を1体消費（ライフの代わり）
+  hit(cost = 1) {
+    if (this.invuln > 0 || this.hitTick > 0 || !this.alive) return;
+    // 被弾 → 僚機を消費（ライフの代わり）。cost は一度に失う数。
     if (Wingmen.count > 0) {
-      Wingmen.lose();
+      const n = Math.min(cost, Wingmen.count);
+      for (let i = 0; i < n; i++) Wingmen.lose();
+      this.hitTick = CFG.player.hitTick;
       this.invuln = CFG.player.invuln;
       Sound.sfxDamage(); Sound.sfxWingLost();
-      FX.burst(this.group.position, 0xff6a7a, 12, .45);
-      UI.flash('#ff4d5a'); UI.shake(.55);
+      FX.burst(this.group.position, 0xff6a7a, 12 + n * 4, .45 + n * .1);
+      UI.flash('#ff4d5a'); UI.shake(.55 + n * .25);
+      if (n > 1) UI.popup(`僚機 -${n}`, '#ff4d5a');
     } else {
       this.alive = false;
       Sound.sfxDamage();
@@ -1068,8 +1082,9 @@ const Wingmen = {
     UI.updateWingmen();
     return true;
   },
-  lose() {
-    const w = this.list.pop(); if (!w) return;
+  /* oldest=true で最も古い僚機から消費する（ボム用）。被弾は新しい方から。 */
+  lose(oldest = false) {
+    const w = oldest ? this.list.shift() : this.list.pop(); if (!w) return;
     FX.burst(w.obj.position, 0x9ff0ff, 12, .38);
     FX.bubbles(w.obj.position, 6, .8);
     scene.remove(w.obj);
@@ -1081,11 +1096,11 @@ const Wingmen = {
     if (!targets.length) return;
     this.list.forEach((w, i) => {
       const t = targets[i % targets.length];
-      setTimeout(() => {
+      Sched.add(i * .042, () => {
         if (!w.obj.parent) return;
         Bullets.spawnHoming(w.obj.position, t.target, t.part);
         FX.burst(w.obj.position, 0x9ff0ff, 4, .25, .3);
-      }, i * 42);
+      });
     });
     Sound.sfxHoming();
   },
@@ -1376,7 +1391,7 @@ const Enemies = {
 const BOSS_SCALE = 18.0;
 const Boss = {
   active: false, alive: false, group: null, obj: null,
-  parts: null, phase: 'idle', phaseT: 0, fireT: 0, lungeT: 0,
+  parts: null, phase: 'idle', phaseT: 0, fireT: 0, lungeT: 0, atkT: 0, atkIdx: 0,
   bodyRadius: 6.2, summonsLeft: 0, summonT: 0, deathT: 0, hitFlash: 0,
   lunges: [], damageMulBody: .26,
 
@@ -1423,7 +1438,7 @@ const Boss = {
     if (!this.group) this.build();
     this.makeParts();
     this.active = true; this.alive = true; this.phase = 'entry'; this.phaseT = 0;
-    this.fireT = 1.6; this.lungeT = 4.2; this.deathT = 0; this.summonsLeft = 0; this.hitFlash = 0;
+    this.fireT = 1.6; this.lungeT = 4.2; this.atkT = 2.6; this.atkIdx = 0; this.deathT = 0; this.summonsLeft = 0; this.hitFlash = 0;
     this.group.visible = true;
     this.group.position.set(0, 1.5, Player.z - 110);
     this.group.rotation.set(0, 0, 0);
@@ -1522,7 +1537,7 @@ const Boss = {
     // 部位フラッシュ
     let anyFlash = 0;
     for (const k in this.parts) { const p = this.parts[k]; if (p.flash > 0) { p.flash -= dt; anyFlash = Math.max(anyFlash, p.flash); } }
-    setEmissive(this.obj, 0xff4d5a, anyFlash * 3.4);
+    setEmissive(this.obj, 0xff4d5a, Math.min(.5, anyFlash * 1.9));   // 連射中に染まりっぱなしにならないよう上限を設ける
 
     // 破壊済み部位から泡が漏れる
     for (const k in this.parts) {
@@ -1549,17 +1564,29 @@ const Boss = {
         g.rotation.z = Math.sin(this.phaseT * .5) * .1;
         g.rotation.y = Math.sin(this.phaseT * .33) * .12;
 
-        // あわを飛ばす
-        this.fireT -= dt;
-        if (this.fireT <= 0) {
-          this.fireT = (this.phase === 'fight2' ? .95 : 1.35) * Game.diffMul.fireRate;
-          this.bubbleAttack();
-        }
-        // 触手を伸ばす
-        this.lungeT -= dt;
-        if (this.lungeT <= 0) {
-          this.lungeT = (this.phase === 'fight2' ? 3.1 : 4.4) * Game.diffMul.fireRate;
-          this.tentacleLunge();
+        {
+          const D = Game.diffMul;
+          // あわを飛ばす（メイン）
+          this.fireT -= dt;
+          if (this.fireT <= 0) {
+            this.fireT = (this.phase === 'fight2' ? .8 : 1.1) * D.fireRate;
+            this.bubbleAttack();
+          }
+          // HARD 以上：2本目の攻撃トラック。メインと重なって撃たれるので
+          // 「弾の切れ目」が無くなる。
+          if (D.extraPattern > 0) {
+            this.atkT -= dt;
+            if (this.atkT <= 0) {
+              this.atkT = (this.phase === 'fight2' ? 1.5 : 2.0) * D.fireRate;
+              this.subAttack();
+            }
+          }
+          // 触手を伸ばす
+          this.lungeT -= dt;
+          if (this.lungeT <= 0) {
+            this.lungeT = (this.phase === 'fight2' ? 2.6 : 3.6) * D.fireRate;
+            this.tentacleLunge();
+          }
         }
         if (this.phase === 'fight1' && this.bodyExposed()) { this.phase = 'fight2'; this.phaseT = 0; }
         break;
@@ -1644,6 +1671,73 @@ const Boss = {
     Sound.tone(260, .22, 'sine', .14, 120);
   },
 
+  /* HARD 以上の追加攻撃。撃つたびに種類が変わる。 */
+  subAttack() {
+    const kinds = ['wall', 'spiral', 'burst'];
+    const k = kinds[this.atkIdx++ % kinds.length];
+    if (k === 'wall') this.wallAttack();
+    else if (k === 'spiral') this.spiralAttack();
+    else this.aimedBurst();
+  },
+
+  /* 横一列の壁。1か所だけ穴が開いていて、そこへ移動しないと避けられない。 */
+  wallAttack() {
+    const D = Game.diffMul;
+    const n = 13 + D.extraPattern * 3;
+    const gap = (Math.random() * (n - 4)) | 0;
+    const spd = 19 * D.bulletSpeed;
+    const src = this.partWorld('body', new THREE.Vector3());
+    UI.popup('弾幕！', '#aee9ff');
+    for (let i = 0; i < n; i++) {
+      if (i >= gap && i <= gap + 2) continue;     // 穴
+      const x = (i - (n - 1) / 2) * 1.5;
+      Sched.add(i * .012, () => {
+        if (!this.alive) return;
+        const from = new THREE.Vector3(src.x + x, src.y + rand(-1, 1), src.z);
+        Bullets.spawnEnemy(from, new THREE.Vector3(0, 0, spd), 'bubble', .40);
+      });
+    }
+    Sound.tone(190, .3, 'square', .16, 120);
+  },
+
+  /* 回転しながら撒き続ける渦。撃ち終わるまで約1.4秒、動き続けないと当たる。 */
+  spiralAttack() {
+    const D = Game.diffMul;
+    const arms = 2 + D.extraPattern;
+    const steps = 16 + D.extraPattern * 6;
+    const spd = 17 * D.bulletSpeed;
+    this.spiralPh = (this.spiralPh || 0) + 1.1;
+    for (let s = 0; s < steps; s++) {
+      Sched.add(s * .085, () => {
+        if (!this.alive) return;
+        const src = this.partWorld('body', new THREE.Vector3());
+        for (let a = 0; a < arms; a++) {
+          const ang = this.spiralPh + s * .42 + (a / arms) * Math.PI * 2;
+          const v = new THREE.Vector3(Math.cos(ang) * .62, Math.sin(ang) * .62, -1).normalize();
+          Bullets.spawnEnemy(src, v.multiplyScalar(spd), 'bubble', .36);
+        }
+      });
+    }
+    Sound.tone(300, .5, 'sine', .14, 520);
+  },
+
+  /* 自機を狙う速い連射。避けながら撃つ手を止めさせない。 */
+  aimedBurst() {
+    const D = Game.diffMul;
+    const n = 5 + D.extraPattern * 2;
+    const spd = 30 * D.bulletSpeed;
+    for (let i = 0; i < n; i++) {
+      Sched.add(i * .09, () => {
+        if (!this.alive) return;
+        const src = this.partWorld('body', new THREE.Vector3());
+        const dir = new THREE.Vector3(Player.x, Player.y, Player.z).sub(src).normalize();
+        dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), rand(-.05, .05) * D.spread);
+        Bullets.spawnEnemy(src, dir.multiplyScalar(spd), 'tooth', .32);
+      });
+    }
+    Sound.tone(520, .2, 'sawtooth', .14, 260);
+  },
+
   tentacleLunge() {
     const sides = [];
     if (this.parts.tenL.alive) sides.push(0);
@@ -1654,13 +1748,13 @@ const Boss = {
     sides.forEach((si, idx) => {
       const L = this.lunges[si];
       if (L.active) return;
-      setTimeout(() => {
+      Sched.add(idx * .32, () => {
         if (!this.alive) return;
         this.partWorld(si === 0 ? 'tenL' : 'tenR', L.from);
         L.to.set(Player.x + rand(-1.7, 1.7), Player.y + rand(-1.3, 1.3), Player.z + rand(-.8, 1.0));
         L.active = true; L.t = 0; L.dur = 1.65; L.mesh.visible = true;
         L.tip.copy(L.from);
-      }, idx * 320);
+      });
     });
   },
 
@@ -1842,16 +1936,16 @@ const LockOn = {
   release() {
     const pend = this.pending;
     if (!pend.length) return;
-    const from = Player.gunPos.clone();
     const color = this.color;
     pend.forEach((m, i) => {
-      setTimeout(() => {
+      // ゲーム内時間で遅延（ポーズ中は進まない）。発射位置はその瞬間の銃口。
+      Sched.add(i * .045, () => {
         if (!isAlive(m.target, m.part)) { this.onLaserImpact(m); return; }
         m.fired = true;
-        const L = makeLaser(from, m.target, m.part, color, m);
+        const L = makeLaser(Player.gunPos.clone(), m.target, m.part, color, m);
         Bullets.lasers.push(L);
         Sound.sfxLaser();
-      }, i * 45);
+      });
     });
     // 停止していた僚機のホーミング弾も一斉発射
     Wingmen.volley(pend.map(m => ({ target: m.target, part: m.part })));
@@ -2410,7 +2504,7 @@ const Game = {
     if (this.state !== 'play') return;
     if (this.bombCd > 0) { Sound.sfxBombFail(); UI.popup('ボム クールタイム中', '#8fa8b4'); return; }
     if (Wingmen.count <= 0) { Sound.sfxBombFail(); UI.popup('僚機がいない！', '#ff4d5a'); return; }
-    Wingmen.lose();                   // コスト：僚機1体
+    Wingmen.lose(true);               // コスト：僚機1体（古い順に消費）
     this.bombCd = CFG.bomb.cooldown;
     Sound.sfxBomb();
     UI.flash('#bff4ff', .75); UI.shake(1.2);

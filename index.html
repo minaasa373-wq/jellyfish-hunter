@@ -166,7 +166,13 @@ h1.logo{margin:0;font-size:clamp(34px,7.4vw,86px);letter-spacing:.1em;line-heigh
         <b class="tt">■ 僚機＝ライフ</b><br>
         被弾すると僚機を1体失います。僚機0で被弾するとゲームオーバー、ステージ最初からやり直しです。<br><br>
         <b class="tt">■ ロックオン中のトレードオフ</b><br>
-        なぞっている間は僚機の攻撃が止まります。クリックを離した瞬間、レーザーと僚機弾が一斉に飛びます。
+        なぞっている間は僚機の攻撃が止まります。クリックを離した瞬間、レーザーと僚機弾が一斉に飛びます。<br><br>
+        <b class="tt">■ 難易度</b><br>
+        <b>NORMAL</b>：最初から選べます。<br>
+        <b>HARD</b>（1周クリアで解放）：敵の数 2倍・耐久 1.55倍・弾速と弾幕量を強化。
+        中ボスとボスの耐久は<span class="tt">5倍</span>。群れの切れ目には増援が差し込まれ、休む間がありません。<br>
+        <b>NIGHTMARE</b>（HARD クリアで解放）：敵の数 3倍・ボス耐久 6倍。
+        敵は弾幕を二重に重ね、エイは全方位弾を撒きます。
       </div>
     </div>
     <button class="btn" id="btnHelpBack" style="width:min(300px,80vw)">もどる</button>
@@ -232,7 +238,7 @@ import { GLTFLoader } from './vendor/GLTFLoader.js';
  * ------------------------------------------------------------------ */
 const CFG = {
   rail:    { speed: 12, total: 2100 },          // 自動前進（-Z方向）
-  player:  { speed: 14.5, bx: 8.2, by: 4.6, radius: 0.62, invuln: 2.0, lerp: 12 },
+  player:  { speed: 14.5, bx: 8.2, by: 4.6, radius: 0.62, invuln: 1.0, lerp: 12 },
   cam:     { fov: 50, back: 8.6, up: 1.95, lookAhead: 15, follow: 0.42 },
   shot:    { rate: 0.105, speed: 115, dmg: 5, radius: .34 },   // 通常ショット＝最弱
   laser:   { dmg: 62, travel: 0.34, radius: .75 },             // ロックオンレーザー＝最強
@@ -242,14 +248,39 @@ const CFG = {
   bomb:    { cooldown: 5.0 },
   enemyBullet: { radius: .34 },
 };
-const HARD = { hp: 1.55, bulletSpeed: 1.28, fireRate: 0.62, spread: 1.7 };
+/* 難易度。NORMAL は初期バランスのまま、HARD 以降は敵数・耐久・弾幕を一気に上げる。
+   count      : 1グループあたりの投入数の倍率（横に広げず奥行きに重ねる）
+   bossHp     : 中ボス／ボスだけに掛かる耐久倍率（雑魚の hp とは別枠）
+   fillerRate : 群れの切れ目を埋める追加湧きの有無（0 で無効＝NORMAL）
+   volleyGap  : 1回の斉射を何秒ずつずらして撃つか（0 だと全弾同時＝弾幕感が出ない） */
+const DIFF = {
+  normal: {
+    key: 'normal', label: 'NORMAL', color: '#6fe8ff',
+    hp: 1,    bossHp: 1,        bulletSpeed: 1,    fireRate: 1,    spread: 1,
+    count: 1, fillerRate: 0,    fillerCap: 0,  fillerInterval: 0,
+    volleyGap: 0.045, speedJitter: 0.12, extraPattern: 0,
+  },
+  hard: {
+    key: 'hard', label: 'HARD', color: '#ffe14d',
+    hp: 1.55, bossHp: 1.55 * 5, bulletSpeed: 1.28, fireRate: 0.62, spread: 1.7,
+    count: 2, fillerRate: 1,    fillerCap: 16, fillerInterval: 1.5,
+    volleyGap: 0.055, speedJitter: 0.26, extraPattern: 1,
+  },
+  nightmare: {
+    key: 'nightmare', label: 'NIGHTMARE', color: '#ff5ad0',
+    hp: 2.1,  bossHp: 2.1 * 6,  bulletSpeed: 1.45, fireRate: 0.44, spread: 2.1,
+    count: 3, fillerRate: 1,    fillerCap: 24, fillerInterval: 0.95,
+    volleyGap: 0.05,  speedJitter: 0.34, extraPattern: 2,
+  },
+};
+const DIFF_ORDER = ['normal', 'hard', 'nightmare'];
 
 /* ------------------------------------------------------------------ *
  * 1. セーブ（武器解放・ハード解放は永続）
  * ------------------------------------------------------------------ */
 const SAVE_KEY = 'jellyfish-hunter.save.v1';
 const Save = {
-  data: { cleared: false, weaponUnlocked: false, hardUnlocked: false, weapon: 'normal', diff: 'normal', muted: false },
+  data: { cleared: false, weaponUnlocked: false, hardUnlocked: false, nightmareUnlocked: false, weapon: 'normal', diff: 'normal', muted: false },
   load() {
     try {
       const raw = localStorage.getItem(SAVE_KEY);
@@ -635,6 +666,24 @@ addEventListener('pointerup', e => {
   if (e.button === 0 && Input.lmb) { Input.lmb = false; Input.lmbJustUp = true; }
 });
 addEventListener('pointerleave', () => { Input.mouse.inside = false; });
+
+/* ------------------------------------------------------------------ *
+ * 6.5 ゲーム内時間のスケジューラ
+ *  斉射を数十msずつずらして撃つために使う。setTimeout と違いポーズ中は
+ *  進まず、ステージをやり直したときに古い予約が残らない。
+ * ------------------------------------------------------------------ */
+const Sched = {
+  list: [],
+  add(delay, fn) { this.list.push({ t: delay, fn }); },
+  update(dt) {
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const s = this.list[i];
+      s.t -= dt;
+      if (s.t <= 0) { this.list.splice(i, 1); s.fn(); }
+    }
+  },
+  clear() { this.list.length = 0; },
+};
 
 /* ------------------------------------------------------------------ *
  * 7. エフェクト（爆発・泡・ヒットスパーク）
@@ -1083,16 +1132,18 @@ const ENEMY_DEF = {
 
 const Enemies = {
   list: [],
+  MAX_ALIVE: 72,
   spawn(kind, opts = {}) {
     const d = ENEMY_DEF[kind];
+    if (!d.mid && this.list.length >= this.MAX_ALIVE) return null;   // 描画負荷の保険
     const obj = instantiate(d.model);
     obj.scale.setScalar(d.scale);
     obj.rotation.y = 0;                     // モデルは +Z 向き＝プレイヤー側を向く
     scene.add(obj);
     const e = {
       kind, def: d, obj, radius: d.radius * (opts.scale || 1),
-      hp: d.hp * Game.diffMul.hp * (opts.hpMul || 1),
-      maxHp: d.hp * Game.diffMul.hp * (opts.hpMul || 1),
+      hp: d.hp * (d.mid ? Game.diffMul.bossHp : Game.diffMul.hp) * (opts.hpMul || 1),
+      maxHp: d.hp * (d.mid ? Game.diffMul.bossHp : Game.diffMul.hp) * (opts.hpMul || 1),
       alive: true, allyMark: false, locked: false, spawning: .25,
       fireT: rand(.4, d.fire), t: rand(0, 10), flash: 0,
       pattern: opts.pattern || 'drift',
@@ -1177,54 +1228,95 @@ const Enemies = {
       if (o.position.z > pz + 20 || e.lifeT > 48) { this.remove(i, false); }
     }
   },
+  /* --- 斉射ヘルパー ---
+     同じ弾を同時に撃つと「壁」にしか見えないので、
+     ・1発ずつ少しずつ時間をずらす（volleyGap）
+     ・1発ごとに速度をばらす（speedJitter）
+     の2つで弾の到達タイミングを散らし、弧を描いて迫ってくる形にする。 */
+  volley(e, n, make) {
+    const D = Game.diffMul;
+    const gap = D.volleyGap;
+    for (let i = 0; i < n; i++) {
+      const shoot = () => {
+        if (!e.alive) return;
+        const spec = make(i, n);
+        if (!spec) return;
+        const jitter = 1 + (Math.random() * 2 - 1) * D.speedJitter;
+        Bullets.spawnEnemy(spec.from || e.obj.position, spec.dir.multiplyScalar(spec.spd * jitter), spec.kind, spec.radius);
+      };
+      if (gap <= 0 || i === 0) shoot(); else Sched.add(gap * i, shoot);
+    }
+  },
+  /* 自機へのベクトル（撃つ瞬間に取り直すので、撃ち始めてからの移動にも追従する） */
+  aimFrom(pos) { return new THREE.Vector3(Player.x, Player.y, Player.z).sub(pos).normalize(); },
+
   fire(e) {
-    const from = _v1.copy(e.obj.position);
-    const aim = _v2.set(Player.x, Player.y, Player.z).sub(from).normalize();
-    const spd = e.def.bspd * Game.diffMul.bulletSpeed;
-    const spread = Game.diffMul.spread;
+    const D = Game.diffMul;
+    const spd = e.def.bspd * D.bulletSpeed;
+    const spread = D.spread;
+    const YAX = new THREE.Vector3(0, 1, 0), ZAX = new THREE.Vector3(0, 0, 1);
+
     switch (e.kind) {
-      case 'jelly': { // 水のあわ：ゆるい3way
-        const n = Game.hard ? 5 : 3;
-        for (let i = 0; i < n; i++) {
-          const a = (i - (n - 1) / 2) * 0.13 * spread;
-          _v3.copy(aim).applyAxisAngle(_v1.set(0, 1, 0), a);
-          Bullets.spawnEnemy(e.obj.position, _v3.clone().multiplyScalar(spd), 'bubble', .36);
-        }
-        break;
-      }
-      case 'shark': { // 歯を飛ばす：速い単発×2
-        for (let i = 0; i < 2; i++) {
-          _v3.copy(aim).applyAxisAngle(_v1.set(0, 1, 0), (i - .5) * .07 * spread);
-          Bullets.spawnEnemy(e.obj.position, _v3.clone().multiplyScalar(spd), 'tooth', .3);
-        }
-        break;
-      }
-      case 'eel': { // 火を吐く：一直線の連射
-        for (let i = 0; i < (Game.hard ? 4 : 3); i++) {
-          setTimeout(() => {
+      case 'jelly': {   // 水のあわ：扇状にずらして撃つ
+        const n = 3 + D.extraPattern * 2;
+        this.volley(e, n, i => ({
+          dir: this.aimFrom(e.obj.position).applyAxisAngle(YAX, (i - (n - 1) / 2) * 0.13 * spread),
+          spd, kind: 'bubble', radius: .36,
+        }));
+        if (D.extraPattern >= 2) {  // NIGHTMARE：少し遅れて逆回りの扇を重ねる
+          Sched.add(.42, () => {
             if (!e.alive) return;
-            const a2 = _v1.set(Player.x, Player.y, Player.z).sub(e.obj.position).normalize();
-            Bullets.spawnEnemy(e.obj.position, a2.multiplyScalar(spd * .92), 'fire', .38);
-          }, i * 110);
+            this.volley(e, n, i => ({
+              dir: this.aimFrom(e.obj.position).applyAxisAngle(YAX, -(i - (n - 1) / 2) * 0.17 * spread),
+              spd: spd * .85, kind: 'bubble', radius: .36,
+            }));
+          });
         }
         break;
       }
-      case 'ray': { // トゲを飛ばす：扇状の弾幕
-        const n = Game.hard ? 11 : 7;
+      case 'shark': {   // 歯を飛ばす：速い弾を小刻みに連射
+        const n = 2 + D.extraPattern;
+        this.volley(e, n, i => ({
+          dir: this.aimFrom(e.obj.position).applyAxisAngle(YAX, (i - (n - 1) / 2) * .07 * spread),
+          spd: spd * (1 + i * .06), kind: 'tooth', radius: .3,
+        }));
+        break;
+      }
+      case 'eel': {     // 火を吐く：一点狙いの長い連射
+        const n = 3 + D.extraPattern;
         for (let i = 0; i < n; i++) {
-          const a = (i - (n - 1) / 2) * 0.10 * spread;
-          _v3.copy(aim).applyAxisAngle(_v1.set(0, 1, 0), a);
-          Bullets.spawnEnemy(e.obj.position, _v3.clone().multiplyScalar(spd), 'spike', .3);
-        }
-        if (Math.random() < .5) {
-          setTimeout(() => {
+          Sched.add(i * .11, () => {
             if (!e.alive) return;
-            for (let i = 0; i < n; i++) {
-              const a = (i - (n - 1) / 2) * .16;
-              const v = _v1.set(Player.x, Player.y, Player.z).sub(e.obj.position).normalize().applyAxisAngle(_v2.set(0, 0, 1), a);
-              Bullets.spawnEnemy(e.obj.position, v.multiplyScalar(spd * .8), 'spike', .3);
-            }
-          }, 260);
+            const dir = this.aimFrom(e.obj.position);
+            const jitter = 1 + (Math.random() * 2 - 1) * D.speedJitter;
+            Bullets.spawnEnemy(e.obj.position, dir.multiplyScalar(spd * .92 * jitter), 'fire', .38);
+          });
+        }
+        break;
+      }
+      case 'ray': {     // トゲ：扇 → 十字 → （NIGHTMARE）回転する全方位
+        const n = 7 + D.extraPattern * 4;
+        this.volley(e, n, i => ({
+          dir: this.aimFrom(e.obj.position).applyAxisAngle(YAX, (i - (n - 1) / 2) * 0.10 * spread),
+          spd, kind: 'spike', radius: .3,
+        }));
+        Sched.add(.3, () => {
+          if (!e.alive) return;
+          this.volley(e, n, i => ({
+            dir: this.aimFrom(e.obj.position).applyAxisAngle(ZAX, (i - (n - 1) / 2) * .16),
+            spd: spd * .8, kind: 'spike', radius: .3,
+          }));
+        });
+        if (D.extraPattern >= 2) {
+          Sched.add(.75, () => {
+            if (!e.alive) return;
+            const m = 14;
+            e.spin = (e.spin || 0) + .35;
+            this.volley(e, m, i => {
+              const a = (i / m) * Math.PI * 2 + e.spin;
+              return { dir: new THREE.Vector3(Math.cos(a) * .7, Math.sin(a) * .7, -1).normalize(), spd: spd * .7, kind: 'spike', radius: .3 };
+            });
+          });
         }
         break;
       }
@@ -1314,7 +1406,7 @@ const Boss = {
   },
 
   makeParts() {
-    const S = BOSS_SCALE, m = Game.diffMul.hp;
+    const S = BOSS_SCALE, m = Game.diffMul.bossHp;
     const mk = (key, label, ox, oy, oz, r, hp) => ({
       key, label, offset: new THREE.Vector3(ox * S, oy * S, oz * S), radius: r,
       hp: hp * m, maxHp: hp * m, alive: true, flash: 0, smoke: 0,
@@ -1385,7 +1477,7 @@ const Boss = {
   enterSummon() {
     if (this.phase === 'summon' || !this.alive) return;
     this.phase = 'summon'; this.phaseT = 0;
-    this.summonsLeft = Game.hard ? 9 : 7; this.summonT = .2;
+    this.summonsLeft = 7 + Game.diffMul.extraPattern * 4; this.summonT = .2;
     UI.message('SUMMON', 'ザコ召喚 — 味方化のチャンス！');
     Sound.sfxWarn();
   },
@@ -1481,7 +1573,7 @@ const Boss = {
         if (this.summonT <= 0 && this.summonsLeft > 0) {
           this.summonT = .34; this.summonsLeft--;
           const kind = pick(['jelly', 'jelly', 'shark', 'eel']);
-          const e = Enemies.spawn(kind, {
+          Enemies.spawn(kind, {
             x: rand(-7, 7), y: rand(-3, 3.2), z: g.position.z + rand(-2, 6),
             pattern: kind === 'shark' ? 'charge' : 'drift', hpMul: .62, vz: 4,
           });
@@ -1520,26 +1612,33 @@ const Boss = {
   },
 
   bubbleAttack(power = 1) {
-    this.partWorld('body', _v1);
-    const src = _v1.clone();
-    const n = Math.round((Game.hard ? 15 : 11) * power);
-    const base = _v2.set(Player.x, Player.y, Player.z).sub(src).normalize();
-    const spd = 21 * Game.diffMul.bulletSpeed;
+    const D = Game.diffMul;
+    const n = Math.round((11 + D.extraPattern * 5) * power);
+    const spd = 21 * D.bulletSpeed;
+    const YAX = new THREE.Vector3(0, 1, 0), XAX = new THREE.Vector3(1, 0, 0);
+    // 端から端へ掃射するように1発ずつ遅らせる（全弾同時だと「壁」になって避け方が単調）
     for (let i = 0; i < n; i++) {
-      const a = (i - (n - 1) / 2) * .088 * Game.diffMul.spread;
-      const v = base.clone().applyAxisAngle(_v3.set(0, 1, 0), a);
-      v.applyAxisAngle(_v3.set(1, 0, 0), Math.sin(i * 1.7) * .06);
-      Bullets.spawnEnemy(src, v.multiplyScalar(spd * rand(.85, 1.15)), 'bubble', .42);
+      Sched.add(i * D.volleyGap, () => {
+        if (!this.alive) return;
+        const src = this.partWorld('body', new THREE.Vector3());
+        const base = new THREE.Vector3(Player.x, Player.y, Player.z).sub(src).normalize();
+        const a = (i - (n - 1) / 2) * .088 * D.spread;
+        const v = base.applyAxisAngle(YAX, a).applyAxisAngle(XAX, Math.sin(i * 1.7) * .06);
+        Bullets.spawnEnemy(src, v.multiplyScalar(spd * (1 + (Math.random() * 2 - 1) * D.speedJitter)), 'bubble', .42);
+      });
     }
-    // 生きているツノからも撃つ（渦巻き弾）
+    // 生きているツノからは回転する全方位弾
     if (this.parts.horn.alive && power >= 1) {
-      this.partWorld('horn', _v1);
-      const hs = _v1.clone();
-      const m = Game.hard ? 10 : 7;
+      const m = 7 + D.extraPattern * 3;
+      this.hornSpin = (this.hornSpin || 0) + .55;
       for (let i = 0; i < m; i++) {
-        const a = (i / m) * Math.PI * 2 + this.phaseT;
-        const v = new THREE.Vector3(Math.cos(a) * .55, Math.sin(a) * .55, -1).normalize();
-        Bullets.spawnEnemy(hs, v.multiplyScalar(spd * .82), 'bubble', .38);
+        Sched.add(.22 + i * D.volleyGap * .7, () => {
+          if (!this.alive || !this.parts.horn.alive) return;
+          const hs = this.partWorld('horn', new THREE.Vector3());
+          const a = (i / m) * Math.PI * 2 + this.hornSpin;
+          const v = new THREE.Vector3(Math.cos(a) * .55, Math.sin(a) * .55, -1).normalize();
+          Bullets.spawnEnemy(hs, v.multiplyScalar(spd * .82), 'bubble', .38);
+        });
       }
     }
     Sound.tone(260, .22, 'sine', .14, 120);
@@ -1971,7 +2070,13 @@ const UI = {
     e.textContent = `${nm} ${LockOn.marks.length}/${LockOn.max}`;
     e.style.borderColor = LockOn.colorCss;
   },
-  setDiff() { const e = $('pillDiff'); e.textContent = Game.hard ? 'HARD' : 'NORMAL'; e.classList.toggle('on', Game.hard); },
+  setDiff() {
+    const d = DIFF[Game.diff] || DIFF.normal;
+    const e = $('pillDiff');
+    e.textContent = d.label;
+    e.classList.toggle('on', Game.diff !== 'normal');
+    e.style.borderColor = d.color; e.style.color = d.color;
+  },
   setProgress(p) { $('progFill').style.width = (p * 100).toFixed(1) + '%'; },
   setPart(id, part) {
     const el = $(id); if (!el) return;
@@ -2031,22 +2136,57 @@ const Stage = {
     ];
   },
 
+  /* 数の倍率は画面外まで横に広げず、同じ陣形を奥に重ねて波状にする。
+     結果として1グループが通り過ぎるまでの時間も伸び、待ち時間が埋まる。 */
   lineOf(kind, n, o = {}) {
     const z = Game.railZ - 76;
     const y = o.y ?? rand(-2.2, 2.6);
-    for (let i = 0; i < n; i++) {
-      Enemies.spawn(kind, Object.assign({}, o, {
-        x: (i - (n - 1) / 2) * rand(3.0, 4.2), y: y + rand(-.7, .7), z: z - i * rand(0, 7),
-      }));
+    const waves = Game.diffMul.count;
+    for (let w = 0; w < waves; w++) {
+      const dz = -w * 17, dx = (w % 2) * 1.8 - .9;
+      for (let i = 0; i < n; i++) {
+        Enemies.spawn(kind, Object.assign({}, o, {
+          x: (i - (n - 1) / 2) * rand(3.0, 4.2) + dx, y: y + rand(-.7, .7) + (w % 2 ? .9 : -.9),
+          z: z - i * rand(0, 7) + dz,
+        }));
+      }
     }
   },
   arcOf(kind, n, o = {}) {
     const z = Game.railZ - 80;
+    const waves = Game.diffMul.count;
+    for (let w = 0; w < waves; w++) {
+      const dz = -w * 19, flip = w % 2 ? -1 : 1;
+      for (let i = 0; i < n; i++) {
+        const a = (i / Math.max(1, n - 1) - .5) * Math.PI * .92 * flip;
+        Enemies.spawn(kind, Object.assign({}, o, {
+          x: Math.sin(a) * 9.0, y: Math.cos(a) * 3.6 - .6, z: z - Math.abs(Math.sin(a)) * 10 + dz,
+        }));
+      }
+    }
+  },
+
+  /* HARD 以上：敵が途切れたら小隊を差し込み、手が空く時間を作らない */
+  fillerT: 0,
+  updateFiller(dt) {
+    const D = Game.diffMul;
+    if (!D.fillerRate) return;          // NORMAL は従来どおり
+    if (this.gate === 'boss') return;   // ボス戦は召喚フェーズに任せる
+    this.fillerT -= dt;
+    if (this.fillerT > 0) return;
+    this.fillerT = D.fillerInterval * rand(.7, 1.3);
+    if (Enemies.list.filter(e => !e.mid).length >= D.fillerCap) return;
+    const kind = pick(['jelly', 'jelly', 'shark', 'eel', 'shark']);
+    const n = 2 + ((Math.random() * D.count) | 0);
+    const z = Game.railZ - rand(68, 86);
+    const side = Math.random() < .5 ? -1 : 1;
     for (let i = 0; i < n; i++) {
-      const a = (i / Math.max(1, n - 1) - .5) * Math.PI * .92;
-      Enemies.spawn(kind, Object.assign({}, o, {
-        x: Math.sin(a) * 9.0, y: Math.cos(a) * 3.6 - .6, z: z - Math.abs(Math.sin(a)) * 10,
-      }));
+      Enemies.spawn(kind, {
+        x: side * rand(1.5, 9) + i * side * 1.6,
+        y: kind === 'eel' ? rand(-4, -2.6) : rand(-3, 3.2),
+        z: z - i * rand(3, 9),
+        pattern: kind === 'shark' ? 'charge' : kind === 'eel' ? 'anchor' : pick(['drift', 'sine']),
+      });
     }
   },
   spawnMidboss() {
@@ -2069,10 +2209,11 @@ const Stage = {
   },
 
   reset() {
-    this.idx = 0; this.gate = null; this.midbossRef = null;
+    this.idx = 0; this.gate = null; this.midbossRef = null; this.fillerT = 1.2;
     if (!this.script) this.build();
   },
   update(dt) {
+    this.updateFiller(dt);
     if (this.gate) return;
     while (this.idx < this.script.length && Game.dist >= this.script[this.idx].at) {
       this.script[this.idx].fn(); this.idx++;
@@ -2217,14 +2358,11 @@ const Ending = {
  * ------------------------------------------------------------------ */
 const Game = {
   state: 'load', time: 0, dist: 0, railZ: 0, railMul: 1,
-  hard: false, weapon: 'normal', bombCd: 0, diffMul: { hp: 1, bulletSpeed: 1, fireRate: 1, spread: 1 },
+  diff: 'normal', weapon: 'normal', bombCd: 0, diffMul: DIFF.normal,
   endT: 0,
 
-  applyDifficulty() {
-    this.diffMul = this.hard
-      ? { hp: HARD.hp, bulletSpeed: HARD.bulletSpeed, fireRate: HARD.fireRate, spread: HARD.spread }
-      : { hp: 1, bulletSpeed: 1, fireRate: 1, spread: 1 };
-  },
+  get hard() { return this.diff !== 'normal'; },   // 「HARD 以上か」の判定用
+  applyDifficulty() { this.diffMul = DIFF[this.diff] || DIFF.normal; },
 
   toTitle() {
     this.state = 'title';
@@ -2236,6 +2374,7 @@ const Game = {
   },
 
   teardown() {
+    Sched.clear();
     Enemies.clear(); Wingmen.clear(); Bullets.clearAll(); FX.clear();
     LockOn.reset(); Boss.stop(); UI.showBossBar(false);
     if (Player.group) Player.group.visible = false;
@@ -2304,9 +2443,11 @@ const Game = {
     UI.message('MISSION COMPLETE', 'ボスクラゲ 撃破');
     // 解放状態を保存（永続）
     const firstClear = !Save.data.cleared;
+    const unlockedNightmare = this.diff === 'hard' && !Save.data.nightmareUnlocked;
     Save.data.cleared = true;
     Save.data.weaponUnlocked = true;
     Save.data.hardUnlocked = true;
+    if (this.diff === 'hard' || this.diff === 'nightmare') Save.data.nightmareUnlocked = true;
     Save.write();
     const kinds = Wingmen.list.map(w => w.kind);
     UI.fade(true);
@@ -2314,9 +2455,12 @@ const Game = {
       UI.showHud(false);
       try { await Ending.snapshot3D(kinds); } catch (e) { Ending.snapshot = null; }
       Ending.render();
+      const dl = (DIFF[this.diff] || DIFF.normal).label;
       $('endText').innerHTML = firstClear
         ? 'おめでとう！<b class="tt">武器セットアップ</b>と<b class="tt">HARD</b>が解放されました。<br>タイトル画面から装備を選んで、もう一度潜れます。'
-        : `<b class="tt">${this.hard ? 'HARD' : 'NORMAL'}</b> クリア！ 僚機 ${kinds.length} 体と生還した。`;
+        : unlockedNightmare
+          ? `<b class="tt">HARD</b> クリア！ 最高難易度 <b class="tt">NIGHTMARE</b> が解放されました。<br>僚機 ${kinds.length} 体と生還した。`
+          : `<b class="tt">${dl}</b> クリア！ 僚機 ${kinds.length} 体と生還した。`;
       UI.screen('scEnd');
       UI.fade(false);
       Sound.playMusic('ending');
@@ -2340,6 +2484,7 @@ const Game = {
       Boss.update(dt);
       LockOn.update(dt);
       Bullets.update(dt);
+      Sched.update(dt);
 
       if (this.bombCd > 0) this.bombCd = Math.max(0, this.bombCd - dt);
       UI.setBomb(this.bombCd);
@@ -2430,9 +2575,16 @@ const Menu = {
     $('weaponTag').textContent = s.weaponUnlocked
       ? (Game.weapon === 'burst' ? '装備中：② 強化ロックオン（赤）' : '装備中：① 通常ロックオン強化版（黄・上限10）')
       : '1周クリアで解放';
-    $('btnDiff').firstChild.nodeValue = '難易度：' + (Game.hard ? 'HARD' : 'NORMAL');
-    $('diffTag').textContent = s.hardUnlocked ? 'クリックで切り替え' : 'ハードは1周クリアで解放';
-    $('clearMark').textContent = s.cleared ? '★ CLEARED — 武器セットアップとHARDが解放されています' : '';
+    const d = DIFF[Game.diff] || DIFF.normal;
+    $('btnDiff').firstChild.nodeValue = '難易度：' + d.label;
+    $('btnDiff').style.borderColor = d.color;
+    $('diffTag').textContent =
+      !s.hardUnlocked ? 'HARD は1周クリアで解放'
+      : !s.nightmareUnlocked ? 'クリックで切り替え（NIGHTMARE は HARD クリアで解放）'
+      : 'クリックで切り替え';
+    $('clearMark').textContent =
+      s.nightmareUnlocked ? '★ HARD CLEARED — NIGHTMARE が解放されています'
+      : s.cleared ? '★ CLEARED — 武器セットアップと HARD が解放されています' : '';
     $('wpNormal').classList.toggle('sel', Game.weapon !== 'burst');
     $('wpBurst').classList.toggle('sel', Game.weapon === 'burst');
   },
@@ -2442,8 +2594,11 @@ const Menu = {
     click('btnHelp', () => { Game.state = 'help'; UI.screen('scHelp'); });
     click('btnHelpBack', () => Game.toTitle());
     click('btnDiff', () => {
-      if (!Save.data.hardUnlocked) { UI.popupTitle('1周クリアでHARDが解放されます'); return; }
-      Game.hard = !Game.hard; Save.data.diff = Game.hard ? 'hard' : 'normal'; Save.write(); this.refresh();
+      if (!Save.data.hardUnlocked) { UI.popupTitle('1周クリアで HARD が解放されます'); return; }
+      const avail = DIFF_ORDER.filter(k => k === 'normal' || (k === 'hard' && Save.data.hardUnlocked) || (k === 'nightmare' && Save.data.nightmareUnlocked));
+      const next = avail[(avail.indexOf(Game.diff) + 1) % avail.length];
+      Game.diff = next; Save.data.diff = next; Save.write(); this.refresh();
+      if (next === 'nightmare') UI.popupTitle('NIGHTMARE：敵3倍・ボス耐久6倍');
     });
     click('btnWeapon', () => { Game.state = 'weapon'; UI.screen('scWeapon'); this.refresh(); });
     click('wpNormal', () => { Game.weapon = 'normal'; Save.data.weapon = 'normal'; Save.write(); this.refresh(); });
@@ -2474,7 +2629,7 @@ function onResize() {
 addEventListener('resize', onResize);
 
 /* デバッグ／調整用フック（コンソールから JH.CFG などを触れる） */
-window.JH = { THREE, CFG, Save, Sound, Game, Player, Wingmen, Enemies, Boss, LockOn, Bullets, Stage, Ending, UI, MODELS, scene, camera, renderer };
+window.JH = { THREE, CFG, DIFF, DIFF_ORDER, Save, Sound, Game, Player, Wingmen, Enemies, Boss, LockOn, Bullets, Sched, Stage, Ending, UI, MODELS, scene, camera, renderer };
 
 const clock = new THREE.Clock();
 function loop() {
@@ -2495,7 +2650,11 @@ async function boot() {
   UI.init(); Menu.init();
   UI.setMute(Sound.muted);
   Game.weapon = Save.data.weaponUnlocked ? (Save.data.weapon || 'normal') : 'normal';
-  Game.hard = Save.data.hardUnlocked ? (Save.data.diff === 'hard') : false;
+  {
+    const d = Save.data.diff;
+    const ok = d === 'nightmare' ? Save.data.nightmareUnlocked : d === 'hard' ? Save.data.hardUnlocked : true;
+    Game.diff = ok && DIFF[d] ? d : 'normal';
+  }
   loop();
   try {
     await loadAssets(p => {

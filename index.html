@@ -783,7 +783,7 @@ const Bullets = {
         b.mesh.material.emissiveIntensity = 1.4 + Math.sin(b.t * 30) * .5;
         if ((b.t * 60 | 0) % 4 === 0) FX.bubbles(b.mesh.position, 1, .1);
       }
-      if (b.t > b.life || b.mesh.position.z > Player.obj.position.z + 26) { this.kill(b, this.player, this._pp); this.player.splice(i, 1); continue; }
+      if (b.t > b.life || b.mesh.position.z > Player.group.position.z + 26) { this.kill(b, this.player, this._pp); this.player.splice(i, 1); continue; }
       // 当たり判定
       if (hitEnemies(b.mesh.position, b.radius, b.dmg, b.kind)) { this.kill(b, this.player, this._pp); this.player.splice(i, 1); }
     }
@@ -794,8 +794,8 @@ const Bullets = {
       if (b.kind === 'bubble') b.mesh.position.y += Math.sin(b.t * 5 + b.mesh.position.x) * .6 * dt;
       if (b.kind === 'fire') { b.mesh.scale.setScalar(1 + Math.sin(b.t * 26) * .22); b.mesh.material.color.setHex(Math.random() < .5 ? 0xff8a2b : 0xffd24d); }
       if (b.kind === 'tooth' || b.kind === 'spike') b.mesh.rotateY(dt * 11);
-      if (b.t > b.life || b.mesh.position.z > Player.obj.position.z + 22) { this.kill(b, this.enemy, this._pe); this.enemy.splice(i, 1); continue; }
-      if (Player.alive && !Player.invuln && b.mesh.position.distanceTo(Player.obj.position) < b.radius + CFG.player.radius) {
+      if (b.t > b.life || b.mesh.position.z > Player.group.position.z + 22) { this.kill(b, this.enemy, this._pe); this.enemy.splice(i, 1); continue; }
+      if (Player.alive && Player.invuln <= 0 && b.mesh.position.distanceTo(Player.group.position) < b.radius + CFG.player.radius) {
         Player.hit(); this.kill(b, this.enemy, this._pe); this.enemy.splice(i, 1);
       }
     }
@@ -940,7 +940,7 @@ const Player = {
 
     // 無敵時間＋点滅
     if (this.invuln > 0) {
-      this.invuln -= dt; this.blink += dt;
+      this.invuln = Math.max(0, this.invuln - dt); this.blink += dt;
       const on = (this.blink * 14) % 2 < 1;
       setOpacity(this.obj, on ? .28 : 1);
       if (this.invuln <= 0) { setOpacity(this.obj, 1); this.blink = 0; }
@@ -958,12 +958,12 @@ const Player = {
     } else this.shotTimer = 0;
 
     // 敵本体との接触判定
-    if (!this.invuln) {
+    if (this.invuln <= 0) {
       for (const e of Enemies.list) {
-        if (!e.alive || e.spawning) continue;
+        if (!e.alive || e.spawning > 0) continue;
         if (e.obj.position.distanceTo(this.group.position) < e.radius + CFG.player.radius) { this.hit(); break; }
       }
-      if (Boss.active && Boss.alive && !this.invuln) {
+      if (Boss.active && Boss.alive && this.invuln <= 0) {
         if (Boss.group.position.distanceTo(this.group.position) < Boss.bodyRadius + CFG.player.radius) this.hit();
         for (const t of Boss.lunges) {
           if (t.active && t.tip.distanceTo(this.group.position) < 1.5 + CFG.player.radius) { this.hit(); break; }
@@ -1110,7 +1110,7 @@ const Enemies = {
     for (let i = this.list.length - 1; i >= 0; i--) {
       const e = this.list[i];
       e.t += dt; e.lifeT += dt;
-      if (e.spawning > 0) { e.spawning -= dt; }
+      if (e.spawning > 0) e.spawning = Math.max(0, e.spawning - dt);
       const o = e.obj;
 
       switch (e.pattern) {
@@ -1645,12 +1645,26 @@ function screenRadius(worldPos, worldR) {
  * ------------------------------------------------------------------ */
 const LockOn = {
   marks: [], dragging: false, trail: [], firedThisDrag: false, lockedDuringDrag: 0,
+  lastX: 0, lastY: 0,
   // 1周目は上限6体。クリア後の武器セットアップ解放で上限10体になる。
   get max() { return Save.data.weaponUnlocked ? CFG.lock.upgraded : CFG.lock.base; },
   get color() { return Game.weapon === 'burst' ? 0xff4d5a : 0xffe14d; },
   get colorCss() { return Game.weapon === 'burst' ? '#ff4d5a' : '#ffe14d'; },
 
   reset() { this.marks.length = 0; this.trail.length = 0; this.dragging = false; this.lockedDuringDrag = 0; },
+
+  /* 前フレームからカーソルが飛んだ分を線分で補間して拾う。
+     1フレーム1点だけだと、速くなぞったときに敵をすり抜けてしまうため。 */
+  sweep(x0, y0, x1, y1) {
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const steps = clamp(Math.ceil(dist / 14), 1, 32);
+    for (let i = 1; i <= steps; i++) {
+      if (this.marks.length >= this.max) break;
+      const t = i / steps;
+      const hit = this.pickAt(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
+      if (hit) this.add(hit.target, hit.part);
+    }
+  },
 
   has(target, part) { return this.marks.some(m => m.target === target && m.part === part); },
   get pending() { return this.marks.filter(m => !m.fired); },
@@ -1690,7 +1704,7 @@ const LockOn = {
       const d = Math.hypot(_sp.x - px, _sp.y - py);
       if (d < r && d < bestD) { bestD = d; best = { target, part }; }
     };
-    for (const e of Enemies.list) if (e.alive && !e.spawning) tryOne(e, null, e.obj.position, e.radius);
+    for (const e of Enemies.list) if (e.alive && e.spawning <= 0) tryOne(e, null, e.obj.position, e.radius);
     if (Boss.active && Boss.alive) {
       for (const k of ['horn', 'tenL', 'tenR', 'body']) {
         if (!Boss.parts[k].alive) continue;
@@ -1704,7 +1718,7 @@ const LockOn = {
   burstLock() {
     const cands = [];
     for (const e of Enemies.list) {
-      if (!e.alive || e.spawning) continue;
+      if (!e.alive || e.spawning > 0) continue;
       if (!onScreen(e.obj.position, .02)) continue;
       if (this.has(e, null)) continue;
       cands.push({ target: e, part: null, d: e.obj.position.distanceTo(Player.group.position), zako: 1 });
@@ -1755,18 +1769,19 @@ const LockOn = {
 
     if (Input.lmbJustDown) {
       this.dragging = true; this.trail.length = 0; this.lockedDuringDrag = 0;
+      this.lastX = Input.mouse.x; this.lastY = Input.mouse.y;
       if (Game.weapon === 'burst') this.burstLock();
       else { const t = this.pickAt(Input.mouse.x, Input.mouse.y); if (t) this.add(t.target, t.part); }
     }
     if (this.dragging && Input.lmb) {
       this.trail.push({ x: Input.mouse.x, y: Input.mouse.y, t: 0 });
       if (this.trail.length > 46) this.trail.shift();
-      if (Game.weapon !== 'burst') {
-        const t = this.pickAt(Input.mouse.x, Input.mouse.y);
-        if (t) this.add(t.target, t.part);
-      }
+      if (Game.weapon !== 'burst') this.sweep(this.lastX, this.lastY, Input.mouse.x, Input.mouse.y);
+      this.lastX = Input.mouse.x; this.lastY = Input.mouse.y;
     }
     if (Input.lmbJustUp && this.dragging) {
+      // 離すフレームは上の drag 分岐を通らないので、最後の区間をここで拾っておく
+      if (Game.weapon !== 'burst') this.sweep(this.lastX, this.lastY, Input.mouse.x, Input.mouse.y);
       this.dragging = false;
       this.release();
       this.trail.length = 0;

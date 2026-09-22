@@ -248,7 +248,7 @@ const CFG = {
   player:  { speed: 14.5, bx: 8.2, by: 4.6, radius: 0.62, invuln: 0.3, hitTick: 0.12, lerp: 12 },
   cam:     { fov: 50, back: 8.6, up: 1.95, lookAhead: 15, follow: 0.42 },
   shot:    { rate: 0.105, speed: 115, dmg: 5, radius: .34 },   // 通常ショット＝最弱
-  laser:   { dmg: 80, travel: 0.34, radius: .75 },             // ロックオンレーザー＝最強
+  laser:   { dmg: 105, travel: 0.34, radius: .75 },            // ロックオンレーザー＝最強
   homing:  { dmg: 44, speed: 34, turn: 5.2, life: 4.0, radius: .62 }, // 僚機弾（レーザーより明確に遅い）
   lock:    { base: 6, upgraded: 10, pickPx: 46 },
   wing:    { max: 10, start: 3, radius: 3.4, spin: 1.25, fireRate: 0.42 },
@@ -764,6 +764,13 @@ const FX = {
 /* ------------------------------------------------------------------ *
  * 8. 弾（プレイヤー通常弾 / 僚機ホーミング弾 / 敵弾 / ロックオンレーザー）
  * ------------------------------------------------------------------ */
+/* 敵弾の色（赤系で統一）。種類ごとに明度を変えて見分けられるようにしてある。 */
+const ENEMY_BULLET_COLOR = {
+  bubble: 0xff4f62,   // あわ：明るい赤（最も数が多い）
+  tooth:  0xff5f70,   // 歯　：やや明るい赤
+  fire:   0xff5030,   // 火　：赤寄りのオレンジ
+  spike:  0xe03448,   // トゲ：濃い赤
+};
 const BULLET_GEO = {
   shot:   new THREE.SphereGeometry(.17, 8, 6),
   homing: new THREE.SphereGeometry(.26, 10, 8),
@@ -796,15 +803,19 @@ const Bullets = {
   },
   spawnEnemy(pos, vel, kind, dmgRadius) {
     const geo = BULLET_GEO[kind] || BULLET_GEO.bubble;
-    const color = kind === 'tooth' ? 0xfff6e0 : kind === 'fire' ? 0xff8a2b : kind === 'spike' ? 0xc9d8e6 : 0xaee9ff;
+    // 敵弾は赤系で統一する。自機の通常ショット（黄）・僚機のホーミング弾（水色）と
+    // 一目で区別でき、青い海中背景からも浮くので、弾が増えても見失いにくい。
+    const color = ENEMY_BULLET_COLOR[kind] ?? ENEMY_BULLET_COLOR.bubble;
     const b = this._pe.pop() || this._mk(geo, color, false);
     // プールは形状ごとに違うのでジオメトリを差し替える
     if (b.mesh.geometry !== geo) b.mesh.geometry = geo;
-    b.mesh.material.color.setHex(color);
-    b.mesh.material.opacity = kind === 'bubble' ? .78 : 1;
+    // ベース色を暗く落として発光を主体にする。こうしないと青い環境光で
+    // 赤がサーモンピンクに退色し、弾幕が背景に紛れる。
+    b.mesh.material.color.setHex(color).multiplyScalar(.22);
+    b.mesh.material.opacity = kind === 'bubble' ? .92 : 1;
     b.mesh.material.transparent = kind === 'bubble';
     b.mesh.material.emissive.setHex(color);
-    b.mesh.material.emissiveIntensity = kind === 'fire' ? 1.5 : .8;
+    b.mesh.material.emissiveIntensity = kind === 'fire' ? 2.0 : 1.6;   // 上げすぎるとトーンマッピングで白く抜けて彩度が落ちる
     b.mesh.visible = true; b.mesh.position.copy(pos); b.vel.copy(vel);
     b.mesh.scale.setScalar(1);
     b.life = 6; b.t = 0; b.kind = kind; b.radius = dmgRadius || CFG.enemyBullet.radius;
@@ -814,9 +825,11 @@ const Bullets = {
     this.enemy.push(b); return b;
   },
   _mk(geo, color, additive) {
+    // fog:false — 弾は遠くでも霧に溶けず、色がそのまま出るようにする。
+    // 弾幕ゲームでは弾の視認性が最優先なので背景側に合わせない。
     const mat = new THREE.MeshStandardMaterial({
       color, emissive: color, emissiveIntensity: additive ? 1.5 : .35,
-      roughness: .35, metalness: 0, transparent: true, opacity: 1,
+      roughness: .35, metalness: 0, transparent: true, opacity: 1, fog: false,
     });
     const mesh = new THREE.Mesh(geo, mat); scene.add(mesh);
     return { mesh, vel: new THREE.Vector3(), dmg: 0, life: 2, t: 0, kind: '', radius: .3, target: null, part: null };
@@ -850,7 +863,7 @@ const Bullets = {
       const b = this.enemy[i]; b.t += dt;
       b.mesh.position.addScaledVector(b.vel, dt);
       if (b.kind === 'bubble') b.mesh.position.y += Math.sin(b.t * 5 + b.mesh.position.x) * .6 * dt;
-      if (b.kind === 'fire') { b.mesh.scale.setScalar(1 + Math.sin(b.t * 26) * .22); b.mesh.material.color.setHex(Math.random() < .5 ? 0xff8a2b : 0xffd24d); }
+      if (b.kind === 'fire') { b.mesh.scale.setScalar(1 + Math.sin(b.t * 26) * .22); b.mesh.material.emissive.setHex(Math.random() < .5 ? 0xff5030 : 0xff8050); }
       if (b.kind === 'tooth' || b.kind === 'spike') b.mesh.rotateY(dt * 11);
       if (b.t > b.life || b.mesh.position.z > Player.group.position.z + 22) { this.kill(b, this.enemy, this._pe); this.enemy.splice(i, 1); continue; }
       if (Player.alive && Player.invuln <= 0 && b.mesh.position.distanceTo(Player.group.position) < b.radius + CFG.player.radius) {

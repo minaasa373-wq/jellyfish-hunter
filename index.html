@@ -27,6 +27,10 @@ h1.logo{margin:0;font-size:clamp(34px,7.4vw,86px);letter-spacing:.1em;line-heigh
   background:linear-gradient(180deg,#ffffff,#d6f7ff 38%,#8fe4ff 64%,#ffe14d 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
   filter:drop-shadow(0 3px 10px rgba(0,16,28,.95)) drop-shadow(0 0 26px rgba(90,220,255,.5))}
+/* 色違いのロゴ。background ショートハンドを使うと background-clip:text が
+   打ち消されて「色の帯」になるので、必ず background-image だけを差し替える。 */
+h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a6e 100%);
+  filter:drop-shadow(0 3px 10px rgba(28,0,6,.95)) drop-shadow(0 0 26px rgba(255,80,100,.45))}
 .sub{letter-spacing:.42em;font-size:clamp(10px,1.7vw,14px);color:var(--cy);opacity:.85;margin:-6px 0 4px}
 .menu{display:flex;flex-direction:column;gap:10px;width:min(460px,88vw)}
 .btn{pointer-events:auto;cursor:pointer;border:1px solid rgba(111,232,255,.45);background:rgba(6,32,48,.7);
@@ -207,7 +211,7 @@ h1.logo{margin:0;font-size:clamp(34px,7.4vw,86px);letter-spacing:.1em;line-heigh
   </div>
 
   <div class="screen" id="scOver">
-    <h1 class="logo" style="background:linear-gradient(180deg,#fff,#ff9aa4 45%,#c62b3c);font-size:clamp(30px,6vw,70px)">GAME OVER</h1>
+    <h1 class="logo danger" style="font-size:clamp(30px,6vw,70px)">GAME OVER</h1>
     <div class="small">僚機を失い、深海に飲まれた……</div>
     <div class="rowbtns">
       <button class="btn primary" id="btnRestart">ステージ最初から</button>
@@ -241,14 +245,14 @@ const CFG = {
   /* invuln: 被弾後の無敵（点滅）時間。0 = 無敵なし。
      hitTick: ダメージ判定の最小間隔。無敵ではなく「1回の接触で僚機が
               フレーム数ぶん一気に溶ける」のを防ぐためだけのもの。 */
-  player:  { speed: 14.5, bx: 8.2, by: 4.6, radius: 0.62, invuln: 0, hitTick: 0.12, lerp: 12 },
+  player:  { speed: 14.5, bx: 8.2, by: 4.6, radius: 0.62, invuln: 0.3, hitTick: 0.12, lerp: 12 },
   cam:     { fov: 50, back: 8.6, up: 1.95, lookAhead: 15, follow: 0.42 },
   shot:    { rate: 0.105, speed: 115, dmg: 5, radius: .34 },   // 通常ショット＝最弱
-  laser:   { dmg: 140, travel: 0.34, radius: .75 },            // ロックオンレーザー＝最強（雑魚は必ず1発）
+  laser:   { dmg: 80, travel: 0.34, radius: .75 },             // ロックオンレーザー＝最強
   homing:  { dmg: 44, speed: 34, turn: 5.2, life: 4.0, radius: .62 }, // 僚機弾（レーザーより明確に遅い）
   lock:    { base: 6, upgraded: 10, pickPx: 46 },
   wing:    { max: 10, start: 3, radius: 3.4, spin: 1.25, fireRate: 0.42 },
-  bomb:    { cooldown: 5.0 },
+  bomb:    { cooldown: 5.0, cost: 3 },
   boss:    { tentacleCost: 3 },   // 触手を伸ばす攻撃で失う僚機の数
 
   enemyBullet: { radius: .34 },
@@ -1036,7 +1040,7 @@ const Player = {
     // 被弾 → 僚機を消費（ライフの代わり）。cost は一度に失う数。
     if (Wingmen.count > 0) {
       const n = Math.min(cost, Wingmen.count);
-      for (let i = 0; i < n; i++) Wingmen.lose();
+      for (let i = 0; i < n; i++) Wingmen.lose();   // 古い順
       this.hitTick = CFG.player.hitTick;
       this.invuln = CFG.player.invuln;
       Sound.sfxDamage(); Sound.sfxWingLost();
@@ -1082,9 +1086,10 @@ const Wingmen = {
     UI.updateWingmen();
     return true;
   },
-  /* oldest=true で最も古い僚機から消費する（ボム用）。被弾は新しい方から。 */
-  lose(oldest = false) {
-    const w = oldest ? this.list.shift() : this.list.pop(); if (!w) return;
+  /* 消費は常に最も古い僚機から（被弾・ボム共通）。
+     新しく味方化した僚機ほど手元に残るので、獲得の手応えが消えない。 */
+  lose() {
+    const w = this.list.shift(); if (!w) return;
     FX.burst(w.obj.position, 0x9ff0ff, 12, .38);
     FX.bubbles(w.obj.position, 6, .8);
     scene.remove(w.obj);
@@ -2153,7 +2158,8 @@ const UI = {
   },
   setBomb(cd) {
     const el = $('bombState');
-    if (cd <= 0) { el.textContent = Wingmen.count > 0 ? 'READY (右クリック)' : '僚機が必要'; el.className = Wingmen.count > 0 ? 'ready' : 'cool'; }
+    const ok = Wingmen.count >= CFG.bomb.cost;
+    if (cd <= 0) { el.textContent = ok ? `READY (右クリック / 僚機-${CFG.bomb.cost})` : `僚機 ${CFG.bomb.cost} 体必要`; el.className = ok ? 'ready' : 'cool'; }
     else { el.textContent = `CHARGE ${cd.toFixed(1)}s`; el.className = 'cool'; }
   },
   setShot(on) { const e = $('pillShot'); e.textContent = 'SHOT: ' + (on ? 'ON' : 'OFF'); e.classList.toggle('on', on); },
@@ -2503,8 +2509,10 @@ const Game = {
   bomb() {
     if (this.state !== 'play') return;
     if (this.bombCd > 0) { Sound.sfxBombFail(); UI.popup('ボム クールタイム中', '#8fa8b4'); return; }
-    if (Wingmen.count <= 0) { Sound.sfxBombFail(); UI.popup('僚機がいない！', '#ff4d5a'); return; }
-    Wingmen.lose(true);               // コスト：僚機1体（古い順に消費）
+    if (Wingmen.count < CFG.bomb.cost) {
+      Sound.sfxBombFail(); UI.popup(`僚機が ${CFG.bomb.cost} 体必要！`, '#ff4d5a'); return;
+    }
+    for (let i = 0; i < CFG.bomb.cost; i++) Wingmen.lose();   // コスト：僚機3体（古い順）
     this.bombCd = CFG.bomb.cooldown;
     Sound.sfxBomb();
     UI.flash('#bff4ff', .75); UI.shake(1.2);

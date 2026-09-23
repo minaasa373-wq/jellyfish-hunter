@@ -314,7 +314,7 @@ const CFG = {
      横の半幅で、ウィンドウが横に狭いときはこれが収まるよう画角を自動で広げる。 */
   cam:     { fov: 50, back: 8.6, up: 1.95, lookAhead: 15, follow: 0.42, minHalfW: 6.4 },
   shot:    { rate: 0.105, speed: 115, dmg: 5, radius: .34 },   // 通常ショット＝最弱
-  laser:   { dmg: 105, travel: 0.34, radius: .75 },            // ロックオンレーザー＝最強
+  laser:   { dmg: 105, travel: 0.34, radius: .75, width: .62, afterglow: .26 },  // ロックオンレーザー＝最強
   homing:  { dmg: 44, speed: 34, turn: 5.2, life: 4.0, radius: .62 }, // 僚機弾（レーザーより明確に遅い）
   lock:    { base: 6, upgraded: 10, pickPx: 46 },
   wing:    { max: 10, start: 3, radius: 3.4, spin: 1.25, fireRate: 0.42 },
@@ -327,24 +327,30 @@ const CFG = {
    count      : 1グループあたりの投入数の倍率（横に広げず奥行きに重ねる）
    bossHp     : 中ボス／ボスだけに掛かる耐久倍率（雑魚の hp とは別枠）
    fillerRate : 群れの切れ目を埋める追加湧きの有無（0 で無効＝NORMAL）
+   spawnWide  : 陣形そのものの横幅の倍率（1 で従来どおり）
+   spawnShift : 陣形ごとに与える横ずれの幅（±この値。0 なら常に中央基準）
+                乱数なので中央に湧くこともあれば画面の端から来ることもある
    volleyGap  : 1回の斉射を何秒ずつずらして撃つか（0 だと全弾同時＝弾幕感が出ない） */
 const DIFF = {
   normal: {
     key: 'normal', label: 'NORMAL', color: '#6fe8ff',
     hp: 1,    bossHp: 3,        bulletSpeed: 1,    fireRate: 1,    spread: 1,
     count: 1, fillerRate: 0,    fillerCap: 0,  fillerInterval: 0,
+    spawnWide: 1,     spawnShift: 0,
     volleyGap: 0.045, speedJitter: 0.12, extraPattern: 0,
   },
   hard: {
     key: 'hard', label: 'HARD', color: '#ffe14d',
     hp: 1.55, bossHp: 1.55 * 5, bulletSpeed: 1.28, fireRate: 0.62, spread: 1.7,
     count: 2, fillerRate: 1,    fillerCap: 16, fillerInterval: 1.5,
+    spawnWide: 1.3,   spawnShift: 6,
     volleyGap: 0.055, speedJitter: 0.26, extraPattern: 1,
   },
   nightmare: {
     key: 'nightmare', label: 'NIGHTMARE', color: '#ff5ad0',
     hp: 2.6,  bossHp: 12.6,     bulletSpeed: 1.45, fireRate: 0.44, spread: 2.1,
     count: 3, fillerRate: 1,    fillerCap: 24, fillerInterval: 0.95,
+    spawnWide: 1.5,   spawnShift: 9,
     volleyGap: 0.05,  speedJitter: 0.34, extraPattern: 2,
   },
 };
@@ -1057,27 +1063,28 @@ const Bullets = {
     /* --- ロックオンレーザー（ベジェ曲線で高速に到達） --- */
     for (let i = this.lasers.length - 1; i >= 0; i--) {
       const L = this.lasers[i];
+      // 着弾後もしばらく軌跡を残す。一斉発射の弧が同時に空へ残るので派手に見える。
+      if (L.done) {
+        L.fade -= dt;
+        const k = Math.max(0, L.fade / CFG.laser.afterglow);
+        L.mesh.material.color.setScalar(k * k);
+        L.head.material.opacity = k; L.head.scale.setScalar(1 + (1 - k) * 2.6);
+        if (L.fade <= 0) { disposeLaser(L); this.lasers.splice(i, 1); }
+        continue;
+      }
       L.t += dt / CFG.laser.travel;
       const alive = isAlive(L.target, L.part);
       if (alive) L.p2.copy(targetPos(L.target, L.part));
       const k = clamp(L.t, 0, 1);
-      // 2次ベジェ
-      const u = 1 - k;
-      _v1.set(0, 0, 0)
-        .addScaledVector(L.p0, u * u)
-        .addScaledVector(L.c,  2 * u * k)
-        .addScaledVector(L.p2, k * k);
-      L.head.position.copy(_v1);
-      L.trail.push(_v1.clone());
-      if (L.trail.length > 26) L.trail.shift();
+      L.head.position.copy(laserPoint(L, k, _v1));
       updateLaserRibbon(L);
       if (k >= 1) {
         if (alive) {
           damageTarget(L.target, L.part, CFG.laser.dmg, 'laser');
-          FX.burst(L.p2, L.color, 18, 1.35, .5); FX.ring(L.p2, L.color, 2.4);
+          FX.burst(L.p2, L.color, 24, 1.6, .55); FX.ring(L.p2, L.color, 3.2);
         }
         LockOn.onLaserImpact(L.mark);
-        disposeLaser(L); this.lasers.splice(i, 1);
+        L.done = true; L.fade = CFG.laser.afterglow;      // 破棄は残光が消えてから
       }
     }
   },
@@ -1093,41 +1100,121 @@ const Bullets = {
   },
 };
 
-/* --- レーザーのリボン表現 --- */
+/* --- レーザーのリボン表現 ------------------------------------------
+   THREE.Line は太さを指定できない（WebGL の線幅は常に1px）ので、遠くだと
+   髪の毛のようにしか見えず一斉発射の手応えが出ない。そこで軌跡の各点に
+   「カメラの方を向く帯」を張る。断面は5頂点（外・中・芯・中・外）で、
+   加算合成なので外側を黒にすればそのまま滲んで消える縁になる。 */
+const LASER_SEG = 26;                        // 軌跡の点数
+const LASER_V   = 5;                         // 断面あたりの頂点数
+const LASER_OFF = [-1, -.44, 0, .44, 1];     // 断面の横位置（半幅に対する比）
+const LASER_IDX = (() => {
+  const idx = [];
+  for (let sg = 0; sg < LASER_SEG - 1; sg++) {
+    const a = sg * LASER_V, b = (sg + 1) * LASER_V;
+    for (let v = 0; v < LASER_V - 1; v++) idx.push(a + v, b + v, a + v + 1, a + v + 1, b + v, b + v + 1);
+  }
+  return new Uint16Array(idx);
+})();
+const _lp = new THREE.Vector3(), _ld = new THREE.Vector3(), _lc = new THREE.Vector3();
+const _lcol = new THREE.Color();
+// 軌跡のサンプル点。フレームごとに点を溜めると fps でリボンの長さが変わってしまうので、
+// 毎フレーム曲線そのものを等間隔にサンプルし直す（60fps でも 144fps でも同じ見た目）。
+const _lpts = Array.from({ length: LASER_SEG }, () => new THREE.Vector3());
+/* 2次ベジェ上の点（k=0 が銃口、k=1 が着弾点） */
+function laserPoint(L, k, out) {
+  const u = 1 - k;
+  return out.set(0, 0, 0)
+    .addScaledVector(L.p0, u * u)
+    .addScaledVector(L.c,  2 * u * k)
+    .addScaledVector(L.p2, k * k);
+}
+
 const laserPool = [];
 function makeLaser(p0, target, part, color, mark) {
   let L = laserPool.pop();
   if (!L) {
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(26 * 3), 3));
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: .95, blending: THREE.AdditiveBlending, depthWrite: false });
-    const line = new THREE.Line(geo, mat);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(.24, 10, 8),
-      new THREE.MeshBasicMaterial({ color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
-    scene.add(line); scene.add(head);
-    L = { line, head, trail: [], p0: new THREE.Vector3(), c: new THREE.Vector3(), p2: new THREE.Vector3() };
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(LASER_SEG * LASER_V * 3), 3));
+    geo.setAttribute('color',    new THREE.BufferAttribute(new Float32Array(LASER_SEG * LASER_V * 3), 3));
+    geo.setIndex(new THREE.BufferAttribute(LASER_IDX.slice(), 1));
+    const mat = new THREE.MeshBasicMaterial({
+      vertexColors: true, blending: THREE.AdditiveBlending,
+      depthWrite: false, transparent: true, side: THREE.DoubleSide, fog: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;              // 頂点を毎フレーム書き換えるので自前で管理
+    const head = new THREE.Mesh(new THREE.SphereGeometry(.42, 12, 10),
+      new THREE.MeshBasicMaterial({ color, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
+    scene.add(mesh); scene.add(head);
+    L = { mesh, head, p0: new THREE.Vector3(), c: new THREE.Vector3(), p2: new THREE.Vector3() };
   }
-  L.line.visible = true; L.head.visible = true; L.trail.length = 0;
-  L.line.material.color.setHex(color); L.head.material.color.setHex(color);
+  L.mesh.visible = true; L.head.visible = true;
+  L.mesh.material.color.setScalar(1);        // 残光フェードで暗くした分を戻す
+  L.head.material.color.setHex(color); L.head.material.opacity = 1; L.head.scale.setScalar(1);
   L.color = color; L.target = target; L.part = part; L.mark = mark; L.t = 0;
+  L.done = false; L.fade = 0;
   L.p0.copy(p0); L.p2.copy(targetPos(target, part));
+  paintLaser(L, color);
   // カーブの制御点：横・上方向に大きく膨らませる
   const mid = _v1.copy(L.p0).add(L.p2).multiplyScalar(.5);
   const side = _v2.set(rand(-1, 1), rand(.15, 1), 0).normalize().multiplyScalar(L.p0.distanceTo(L.p2) * rand(.22, .42));
   L.c.copy(mid).add(side);
   return L;
 }
-function updateLaserRibbon(L) {
-  const arr = L.line.geometry.attributes.position.array;
-  const n = L.trail.length;
-  for (let i = 0; i < 26; i++) {
-    const src = L.trail[Math.min(i, n - 1)] || L.p0;
-    arr[i*3] = src.x; arr[i*3+1] = src.y; arr[i*3+2] = src.z;
+
+/* 頂点色は撃った瞬間に1回だけ決める。芯は白寄り、脇は本来の色、外縁は黒。
+   後ろ（撃ち始め）ほど暗くして、先頭が最も明るい尾を引くようにする。 */
+function paintLaser(L, color) {
+  const col = L.mesh.geometry.attributes.color.array;
+  _lcol.setHex(color);
+  const cr = _lcol.r, cg = _lcol.g, cb = _lcol.b;
+  for (let i = 0; i < LASER_SEG; i++) {
+    const k = i / (LASER_SEG - 1);
+    const bright = .3 + .7 * k;              // 先頭ほど明るい
+    for (let v = 0; v < LASER_V; v++) {
+      const o = (i * LASER_V + v) * 3;
+      if (v === 0 || v === LASER_V - 1) { col[o] = col[o+1] = col[o+2] = 0; continue; }  // 外縁＝黒＝消える
+      if (v === 2) {                          // 芯：白を混ぜて強く光らせる
+        col[o]   = (cr + (1 - cr) * .72) * bright * 1.6;
+        col[o+1] = (cg + (1 - cg) * .72) * bright * 1.6;
+        col[o+2] = (cb + (1 - cb) * .72) * bright * 1.6;
+      } else {                                // 脇：本来の色
+        col[o] = cr * bright; col[o+1] = cg * bright; col[o+2] = cb * bright;
+      }
+    }
   }
-  L.line.geometry.attributes.position.needsUpdate = true;
-  L.line.geometry.setDrawRange(0, Math.max(2, n));
+  L.mesh.geometry.attributes.color.needsUpdate = true;
 }
-function disposeLaser(L) { L.line.visible = false; L.head.visible = false; laserPool.push(L); }
+
+function updateLaserRibbon(L) {
+  const kh = clamp(L.t, 0, 1);
+  if (kh <= .01) { L.mesh.visible = false; return; }
+  L.mesh.visible = true;
+  // 銃口から先端までを等間隔にサンプル。弧がまるごと空に残るので斉射が派手に見える。
+  const last = LASER_SEG - 1;
+  for (let i = 0; i < LASER_SEG; i++) laserPoint(L, kh * i / last, _lpts[i]);
+  const pos = L.mesh.geometry.attributes.position.array;
+  const w = CFG.laser.width;
+  for (let i = 0; i < LASER_SEG; i++) {
+    const p = _lpts[i];
+    // 進行方向 × カメラ方向 ＝ 画面で見て真横。どの角度から見ても帯が潰れない。
+    _ld.copy(_lpts[Math.min(last, i + 1)]).sub(_lpts[Math.max(0, i - 1)]);
+    if (_ld.lengthSq() < 1e-8) _ld.set(0, 0, 1);
+    _lc.copy(camera.position).sub(p);
+    _lp.crossVectors(_ld, _lc);
+    if (_lp.lengthSq() < 1e-8) _lp.set(1, 0, 0);
+    _lp.normalize().multiplyScalar(w * (.32 + .68 * (i / last)));   // 先頭ほど太い
+    for (let v = 0; v < LASER_V; v++) {
+      const o = (i * LASER_V + v) * 3, f = LASER_OFF[v];
+      pos[o]   = p.x + _lp.x * f;
+      pos[o+1] = p.y + _lp.y * f;
+      pos[o+2] = p.z + _lp.z * f;
+    }
+  }
+  L.mesh.geometry.attributes.position.needsUpdate = true;
+}
+function disposeLaser(L) { L.mesh.visible = false; L.head.visible = false; laserPool.push(L); }
 
 /* ------------------------------------------------------------------ *
  * 9. 自機
@@ -2589,17 +2676,22 @@ const Stage = {
     ];
   },
 
+  /* HARD 以上は湧く位置の横幅を広げる。陣形1つごとに乱数の横ずれを足すので、
+     中央に湧くこともあれば画面の端から来ることもあり、狙う方向が固定されない。
+     NORMAL は spawnShift 0 で従来どおり中央基準。 */
+  shiftX() { const w = Game.diffMul.spawnShift; return w ? rand(-w, w) : 0; },
+
   /* 数の倍率は画面外まで横に広げず、同じ陣形を奥に重ねて波状にする。
      結果として1グループが通り過ぎるまでの時間も伸び、待ち時間が埋まる。 */
   lineOf(kind, n, o = {}) {
     const z = Game.railZ - 76;
     const y = o.y ?? rand(-2.2, 2.6);
-    const waves = Game.diffMul.count;
+    const waves = Game.diffMul.count, wide = Game.diffMul.spawnWide;
     for (let w = 0; w < waves; w++) {
-      const dz = -w * 17, dx = (w % 2) * 1.8 - .9;
+      const dz = -w * 17, dx = (w % 2) * 1.8 - .9 + this.shiftX();   // 波ごとに別の横ずれ
       for (let i = 0; i < n; i++) {
         Enemies.spawn(kind, Object.assign({}, o, {
-          x: (i - (n - 1) / 2) * rand(3.0, 4.2) + dx, y: y + rand(-.7, .7) + (w % 2 ? .9 : -.9),
+          x: (i - (n - 1) / 2) * rand(3.0, 4.2) * wide + dx, y: y + rand(-.7, .7) + (w % 2 ? .9 : -.9),
           z: z - i * rand(0, 7) + dz,
         }));
       }
@@ -2607,13 +2699,13 @@ const Stage = {
   },
   arcOf(kind, n, o = {}) {
     const z = Game.railZ - 80;
-    const waves = Game.diffMul.count;
+    const waves = Game.diffMul.count, wide = Game.diffMul.spawnWide;
     for (let w = 0; w < waves; w++) {
-      const dz = -w * 19, flip = w % 2 ? -1 : 1;
+      const dz = -w * 19, flip = w % 2 ? -1 : 1, dx = this.shiftX();
       for (let i = 0; i < n; i++) {
         const a = (i / Math.max(1, n - 1) - .5) * Math.PI * .92 * flip;
         Enemies.spawn(kind, Object.assign({}, o, {
-          x: Math.sin(a) * 9.0, y: Math.cos(a) * 3.6 - .6, z: z - Math.abs(Math.sin(a)) * 10 + dz,
+          x: Math.sin(a) * 9.0 * wide + dx, y: Math.cos(a) * 3.6 - .6, z: z - Math.abs(Math.sin(a)) * 10 + dz,
         }));
       }
     }
@@ -2632,10 +2724,10 @@ const Stage = {
     const kind = pick(['jelly', 'jelly', 'shark', 'eel', 'shark']);
     const n = 2 + ((Math.random() * D.count) | 0);
     const z = Game.railZ - rand(68, 86);
-    const side = Math.random() < .5 ? -1 : 1;
+    const side = Math.random() < .5 ? -1 : 1, wide = Game.diffMul.spawnWide;
     for (let i = 0; i < n; i++) {
       Enemies.spawn(kind, {
-        x: side * rand(1.5, 9) + i * side * 1.6,
+        x: side * rand(.5, 9 * wide) + i * side * 1.6,
         y: kind === 'eel' ? rand(-4, -2.6) : rand(-3, 3.2),
         z: z - i * rand(3, 9),
         pattern: kind === 'shark' ? 'charge' : kind === 'eel' ? 'anchor' : pick(['drift', 'sine']),

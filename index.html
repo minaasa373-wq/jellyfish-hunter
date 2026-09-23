@@ -166,7 +166,7 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
     <div id="pillWeapon" class="pill">なぞりロックオン 0/6</div>
     <div id="pillDiff" class="pill">NORMAL</div>
     <div id="pillMute" class="pill">SOUND ON (M)</div>
-    <div id="pillFull" class="pill">全画面 (F)</div>
+    <div id="pillFull" class="pill">全画面 (Enter)</div>
   </div>
   <div class="hud-bl"><div class="lab">DEPTH PROGRESS</div>
     <div class="bar" style="width:220px;height:6px"><i id="progFill"></i></div></div>
@@ -202,7 +202,7 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
       <button class="btn" id="btnHelp">あそびかた<span class="tag">HOW TO PLAY</span></button>
     </div>
     <div class="hint" id="clearMark"></div>
-    <div class="hint dim">F キーで全画面表示　／　メニューの外をクリックでイラストを表示</div>
+    <div class="hint dim">Enter キーで全画面表示　／　メニューの外をクリックでイラストを表示</div>
     <div id="artBack"><span>クリックでメニューにもどる</span></div>
   </div>
 
@@ -216,7 +216,7 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
         <b>スペース</b><span>じどうショット ON / OFF</span>
         <b>右クリック</b><span>ボム（がめんのてきをすべてたおす。みかたのかずが3たいへる）</span>
         <b>M</b><span>サウンド ON / OFF</span>
-        <b>F</b><span>ぜんがめん ON / OFF</span>
+        <b>Enter</b><span>ぜんがめん ON / OFF</span>
         <b>P / ESC</b><span>ゲームをとめる</span>
       </div>
     </div>
@@ -834,12 +834,15 @@ const Input = {
   reset() { this.lmbJustDown = this.lmbJustUp = this.rmbJustDown = false; },
 };
 addEventListener('keydown', e => {
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+  // Enter はフォーカスの当たったボタンを既定で押してしまうので、必ず抑止する。
+  // （マウスで押したボタンにフォーカスが残っていても二重に発動しない）
+  if (['Space', 'Enter', 'NumpadEnter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   Input.keys[e.code] = true;
   if (e.code === 'KeyM') { UI.setMute(Sound.toggleMute()); }
   if (e.code === 'Space' && Game.state === 'play') { Game.toggleAutoShot(); }
-  if (e.code === 'KeyF') { toggleFullscreen(); UI.setFullscreen(); }
+  // 全画面は Enter。移動の D の隣にある F だと誤爆するため離れたキーにしている。
+  if (e.code === 'Enter' || e.code === 'NumpadEnter') { toggleFullscreen(); UI.setFullscreen(); }
   if ((e.code === 'KeyP' || e.code === 'Escape')) Game.togglePause();
 });
 addEventListener('keyup', e => { Input.keys[e.code] = false; });
@@ -2509,7 +2512,7 @@ const UI = {
     // fullscreenchange の直後は状態が確定していないことがあるので少し待って読む
     setTimeout(() => {
       const on = isFullscreen();
-      e.textContent = on ? '全画面を解除 (F)' : '全画面 (F)';
+      e.textContent = on ? '全画面を解除 (Enter)' : '全画面 (Enter)';
       e.classList.toggle('on', on);
     }, 120);
   },
@@ -2991,7 +2994,7 @@ visualViewport && visualViewport.addEventListener('resize', onResize);
 // キャンバスの箱が変わったら理由を問わず追従する（最も取りこぼしが少ない）
 if (window.ResizeObserver) new ResizeObserver(onResize).observe(canvas);
 
-/* --- 全画面（F キー） --- */
+/* --- 全画面（Enter キー） --- */
 function isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
 function toggleFullscreen() {
   try {

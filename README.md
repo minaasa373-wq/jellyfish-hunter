@@ -266,7 +266,7 @@ Meshy から書き出した元データは1つ 7〜9MB（2048px のベースカ�
 ```
 index.html              ゲーム本体（HTML / CSS / JS を1ファイルに同梱）
 audio/bgm_stage.mp3     ステージBGM（Submerged Patrol・ループ）
-audio/bgm_boss.mp3      ボス戦BGM（Leviathan's Wake・ループ）
+audio/bgm_boss.mp3      ボス戦BGM（Titan of the Trench・ループ）
 audio/fanfare_victory.wav 勝利のファンファーレ（4秒・エンディングで1回）
 audio/bgm_gameover.mp3  ゲームオーバーBGM（8秒・1回）
 audio/se_lockon.wav     ロックオン音

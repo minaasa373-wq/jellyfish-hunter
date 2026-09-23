@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <title>JELLYFISH HUNTER</title>
-<meta name="description" content="海中を舞台にした3D弾幕シューティング。なぞってロックオン、倒した敵を僚機にして進め。">
+<meta name="description" content="海中を舞台にした3D弾幕シューティング。なぞってロックオン、倒した敵を味方にして進め。">
 <style>
 :root{
   --cy:#6fe8ff; --cy-dim:#2b7f96; --yellow:#ffe14d; --red:#ff4d5a;
@@ -58,14 +58,27 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
 /* タイトル：イラストにロゴが入っているので CSS のロゴ文字は使わない。
    ロゴは絵の上部中央にあるため center top 基準で cover し、
    下側にだけ暗い帯を重ねてボタンを読みやすくする。 */
-#scTitle{
-  background:
-    linear-gradient(180deg,rgba(2,12,20,0) 0%,rgba(2,12,20,.05) 28%,rgba(1,8,14,.52) 44%,
-      rgba(1,8,14,.88) 68%,rgba(1,8,14,.97) 100%),
-    url(images/title.webp) center top / cover no-repeat,
-    #04121b;
-}
+#scTitle{background:url(images/title.webp) center top / cover no-repeat,#04121b}
+/* 下側の暗い帯。ボタンの上に乗らないよう ::before に分け、
+   一枚絵モードではこれだけを消して絵をそのまま見せる。 */
+#scTitle::before{content:'';position:absolute;inset:0;pointer-events:none;transition:opacity .35s;
+  background:linear-gradient(180deg,rgba(2,12,20,0) 0%,rgba(2,12,20,.05) 28%,rgba(1,8,14,.52) 44%,
+    rgba(1,8,14,.88) 68%,rgba(1,8,14,.97) 100%)}
+#scTitle > *{position:relative;z-index:1}
 #scTitle > *:first-child{margin-top:min(40vh,320px)}
+#scTitle .menu,#scTitle .hint{transition:opacity .3s}
+#scTitle .hint.dim{opacity:.45}
+/* 一枚絵モード：メニューと帯を消し、絵の全体が入るように contain にする */
+#scTitle.artview{background-size:contain;background-position:center center}
+#scTitle.artview::before{opacity:0}
+#scTitle.artview .menu,#scTitle.artview .hint,#scTitle.artview .hint.dim{opacity:0;pointer-events:none}
+#artBack{position:absolute;left:0;right:0;bottom:16px;margin:0;z-index:2;text-align:center;
+  font-size:12px;letter-spacing:.14em;color:#dff4ff;opacity:0;pointer-events:none;transition:opacity .3s;
+  text-shadow:0 2px 10px rgba(0,0,0,.95)}
+#scTitle.artview #artBack{opacity:1}
+/* 明るいイラストの上でも読めるように、文字だけ暗いチップに乗せる */
+#artBack span{display:inline-block;padding:6px 16px;border-radius:99px;
+  background:rgba(1,8,14,.74);border:1px solid rgba(111,232,255,.32)}
 /* 絵の上に置くので、ボタンは背景を濃くして文字を確実に読ませる */
 #scTitle .btn{background:rgba(3,17,27,.88);border-color:rgba(111,232,255,.55);backdrop-filter:blur(2px)}
 #scTitle .btn:hover:not(:disabled){background:rgba(20,86,118,.94)}
@@ -138,7 +151,7 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
 
 <div id="hud">
   <div class="hud-tl">
-    <div><div class="lab">WINGMEN / 僚機</div><div id="wingIcons"></div></div>
+    <div><div class="lab">WINGMEN / 味方</div><div id="wingIcons"></div></div>
     <div><div class="lab">BOMB / ボム</div><div id="bombState" class="ready">READY</div></div>
   </div>
   <div class="hud-tr">
@@ -182,7 +195,8 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
       <button class="btn" id="btnHelp">あそびかた<span class="tag">HOW TO PLAY</span></button>
     </div>
     <div class="hint" id="clearMark"></div>
-    <div class="hint" style="opacity:.45">F キーで全画面表示</div>
+    <div class="hint dim">F キーで全画面表示　／　メニューの外をクリックでイラストを表示</div>
+    <div id="artBack"><span>クリックでメニューにもどる</span></div>
   </div>
 
   <div class="screen" id="scHelp">
@@ -190,10 +204,10 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
     <div class="card">
       <div class="keys">
         <b>いどう</b><span>W ⬆️　A ⬅️　S ⬇️　D ➡️</span>
-        <b>左クリックながおし＋なぞる</b><span>敵をロックオン</span>
+        <b>左クリックながおし＋なぞる</b><span>てきをロックオン</span>
         <b>左クリックをはなす</b><span>ロックオンレーザーをはっしゃ</span>
         <b>スペース</b><span>じどうショット ON / OFF</span>
-        <b>右クリック</b><span>ボム（味方のかずが3つへる）</span>
+        <b>右クリック</b><span>ボム（がめんのてきをすべてたおす。みかたのかずが3たいへる）</span>
         <b>M</b><span>サウンド ON / OFF</span>
         <b>F</b><span>ぜんがめん ON / OFF</span>
         <b>P / ESC</b><span>ゲームをとめる</span>
@@ -201,21 +215,21 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
     </div>
     <div class="card">
       <div class="small" style="text-align:left;max-width:none">
-        <b class="tt">🪼 敵を味方にしよう！</b><br>
-        敵をロックオンしてたおすと、その敵が味方になります！<br>
-        味方はダイバーのまわりをぐるぐるまわりながら、敵をじどうでこうげきしてくれます。<br>
-        味方はさいだい<span class="tt">10たい</span>！<br><br>
+        <b class="tt">🪼 敵（てき）を味方（みかた）にしよう！</b><br>
+        てきをロックオンしてたおすと、そのてきがみかたになります！<br>
+        みかたはダイバーのまわりをぐるぐるまわりながら、てきをじどうでこうげきしてくれます。<br>
+        みかたはさいだい<span class="tt">10たい</span>！<br><br>
 
-        <b class="tt">❤️ 味方がライフになる！</b><br>
-        このゲームでは、味方がダイバーのライフです。<br>
-        敵のこうげきにあたると、味方を1たいうしないます。<br>
-        味方が0たいのときにこうげきをうけるとゲームオーバー！<br><br>
+        <b class="tt">❤️ みかたがライフになる！</b><br>
+        このゲームでは、みかたがダイバーのライフです。<br>
+        てきのこうげきにあたると、みかたを1たいうしないます。<br>
+        みかたが0たいのときにこうげきをうけるとゲームオーバー！<br><br>
 
         <b class="tt">🎯 ロックオンしていっきにこうげき！</b><br>
-        敵をなぞってロックオンしているあいだは、味方のこうげきがとまります。<br>
+        てきをなぞってロックオンしているあいだは、みかたのこうげきがとまります。<br>
         そして……クリックをはなす！<br>
-        すると、ロックオンレーザーと味方のこうげきがいっせいにはっしゃされます。<br>
-        たくさんの敵をロックオンしてから、いっきにこうげきするのがポイントです！
+        すると、ロックオンレーザーとみかたのこうげきがいっせいにはっしゃされます。<br>
+        たくさんのてきをロックオンしてから、いっきにこうげきするのがポイントです！
       </div>
     </div>
     <button class="btn" id="btnHelpBack" style="width:min(300px,80vw)">もどる</button>
@@ -251,7 +265,7 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
 
   <div class="screen" id="scOver">
     <h1 class="logo danger" style="font-size:clamp(30px,6vw,70px)">GAME OVER</h1>
-    <div class="small">僚機を失い、深海に飲まれた……</div>
+    <div class="small">味方を失い、深海に飲まれた……</div>
     <div class="rowbtns">
       <button class="btn primary" id="btnRestart">ステージ最初から</button>
       <button class="btn" id="btnOverTitle">タイトルへ</button>
@@ -347,11 +361,11 @@ const Save = {
 Save.load();
 
 /* ------------------------------------------------------------------ *
- * 2. サウンド（SE / BGM は WebAudio で合成。外部素材なしで自己完結）
+ * 2. サウンド（SE は WebAudio で合成、BGM は audio/ の音源を再生）
  * ------------------------------------------------------------------ */
 const Sound = {
-  ctx: null, master: null, musicGain: null, sfxGain: null,
-  muted: Save.data.muted, track: null, timer: 0, step: 0, playing: null,
+  ctx: null, master: null, sfxGain: null,
+  muted: Save.data.muted,
   init() {
     if (this.ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -360,13 +374,13 @@ const Sound = {
     this.master = this.ctx.createGain();
     this.master.gain.value = this.muted ? 0 : 0.9;
     this.master.connect(this.ctx.destination);
-    this.musicGain = this.ctx.createGain(); this.musicGain.gain.value = 0.32; this.musicGain.connect(this.master);
     this.sfxGain   = this.ctx.createGain(); this.sfxGain.gain.value   = 0.85; this.sfxGain.connect(this.master);
   },
   resume() { this.init(); if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
   setMuted(m) {
     this.muted = m; Save.data.muted = m; Save.write();
-    if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.05);
+    if (this.master) this.master.gain.setTargetAtTime(m ? 0 : 0.9, this.ctx.currentTime, 0.05);  // SE 側
+    this.applyMusicMute();
   },
   toggleMute() { this.setMuted(!this.muted); return this.muted; },
   // --- 汎用トーン ---
@@ -410,56 +424,74 @@ const Sound = {
   sfxBossDown()  { this.noise(1.5, .5, 260, .4); this.tone(90, 1.6, 'sine', .4, 32); this.tone(700, 1.1, 'sine', .16, 120); },
   sfxWarn()      { this.tone(440, .16, 'square', .18); setTimeout(() => this.tone(440, .16, 'square', .18), 210); },
   sfxUI()        { this.tone(760, .06, 'triangle', .12, 1040); },
-  /* --- BGM: ステージ曲 / ボス曲 を差し替えて盛り上げる --- */
-  TRACKS: {
-    stage: { bpm: 132, bass: [0,0,7,7,5,5,3,3], lead: [12,14,15,14,12,10,12,null, 12,14,15,17,15,14,12,10], root: 55.00, wave: 'triangle', leadWave: 'square', leadVol: .085 },
-    boss:  { bpm: 158, bass: [0,0,1,0,3,0,1,0], lead: [12,15,14,12,19,15,14,12, 12,15,17,18,17,15,14,12], root: 49.00, wave: 'sawtooth', leadWave: 'sawtooth', leadVol: .075 },
-    ending:{ bpm: 78,  bass: [0,4,7,4,5,2,7,0], lead: [19,17,16,17,19,21,19,16, 14,16,17,19,17,16,14,12], root: 65.41, wave: 'sine', leadWave: 'sine', leadVol: .10 },
+  /* --- BGM / ジングル ------------------------------------------------
+     用意された音源を <audio> でストリーム再生する。曲全体を
+     decodeAudioData でメモリに展開しないので起動が軽い。
+     音量は要素側で持ち、ミュートは全要素を 0 にして実現する。      */
+  MUSIC: {
+    stage:  { url: 'audio/bgm_stage.mp3',        loop: true,  vol: .58 },
+    boss:   { url: 'audio/bgm_boss.mp3',         loop: true,  vol: .62 },
+    ending: { url: 'audio/fanfare_victory.wav',  loop: false, vol: .85 },  // 4秒・1回だけ
   },
-  playMusic(name) {
-    this.init(); if (!this.ctx) return;
-    if (this.playing === name) return;
-    this.stopMusic();
-    this.playing = name; this.track = this.TRACKS[name]; this.step = 0;
-    const spb = 60 / this.track.bpm / 2; // 8分音符
-    this.timer = setInterval(() => this._tick(), spb * 1000);
-    this._tick();
-  },
-  stopMusic() { if (this.timer) clearInterval(this.timer); this.timer = 0; this.playing = null; },
-  _tick() {
-    if (!this.ctx || this.muted || !this.track) { this.step++; return; }
-    const T = this.track, s = this.step, spb = 60 / T.bpm / 2;
-    const semi = n => T.root * Math.pow(2, n / 12);
-    const b = T.bass[s % T.bass.length];
-    this.tone(semi(b), spb * 1.7, T.wave, .20, null, this.musicGain);
-    if (s % 8 === 0) this.tone(semi(b + 12), spb * 1.1, 'sine', .08, null, this.musicGain);
-    const l = T.lead[s % T.lead.length];
-    if (l !== null && l !== undefined) this.tone(semi(l + 12), spb * 1.25, T.leadWave, T.leadVol, null, this.musicGain);
-    // ハイハット / キック風
-    if (this.playing !== 'ending') {
-      if (s % 2 === 0) this._perc(160, .09, .17);
-      if (s % 4 === 2) this._perc(2400, .05, .05, 'hat');
+  music: {}, musicReady: false, playing: null,
+
+  /* 読み込み開始。タイトル表示前に一度呼んでおくと、
+     出撃ボタンを押すころには十分バッファされている。 */
+  initMusic() {
+    if (this.musicReady) return;
+    this.musicReady = true;
+    for (const k in this.MUSIC) {
+      const m = this.MUSIC[k];
+      const el = new Audio();
+      el.preload = 'auto'; el.loop = m.loop; el.volume = 0;
+      el._fade = false;
+      el.src = m.url;
+      this.music[k] = el;
     }
-    this.step++;
   },
-  _perc(freq, dur, vol, kind) {
-    if (!this.ctx || this.muted) return;
-    const t = this.ctx.currentTime;
-    if (kind === 'hat') {
-      const n = Math.floor(this.ctx.sampleRate * dur);
-      const buf = this.ctx.createBuffer(1, n, this.ctx.sampleRate), d = buf.getChannelData(0);
-      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
-      const src = this.ctx.createBufferSource(); src.buffer = buf;
-      const f = this.ctx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 6000;
-      const g = this.ctx.createGain(); g.gain.setValueAtTime(vol, t);
-      g.gain.exponentialRampToValueAtTime(.0001, t + dur);
-      src.connect(f); f.connect(g); g.connect(this.musicGain); src.start(t);
-    } else {
-      const o = this.ctx.createOscillator(), g = this.ctx.createGain();
-      o.type = 'sine'; o.frequency.setValueAtTime(freq, t);
-      o.frequency.exponentialRampToValueAtTime(42, t + dur);
-      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
-      o.connect(g); g.connect(this.musicGain); o.start(t); o.stop(t + dur + .02);
+  _play(el) { const p = el.play(); if (p && p.catch) p.catch(() => {}); },  // 自動再生拒否は無視
+
+  playMusic(name) {
+    this.initMusic();
+    const m = this.MUSIC[name], el = this.music[name];
+    if (!el) return;
+    if (this.playing === name && !el.paused) return;
+    for (const k in this.music) if (k !== name) this.music[k]._fade = true;  // 前の曲はフェードアウト
+    // 別の曲から切り替わったとき（＝出撃やリトライ）は頭出しする。
+    // ポーズ解除は playing が同じままなので、続きから鳴る。
+    if (this.playing !== name || !m.loop) el.currentTime = 0;
+    this.playing = name;
+    el._fade = false;
+    el.volume = this.muted ? 0 : m.vol;
+    this._play(el);
+  },
+  /* 曲を終わらせる（頭出しまで戻す） */
+  stopMusic() {
+    for (const k in this.music) {
+      const el = this.music[k];
+      // 止まっている曲はフェードしようがないのでその場で頭出しする
+      if (el.paused) { el.currentTime = 0; el.volume = 0; el._fade = false; }
+      else el._fade = true;
+    }
+    this.playing = null;
+  },
+  /* ポーズ：再生位置を保ったまま止める */
+  pauseMusic() { const el = this.music[this.playing]; if (el) el.pause(); },
+  /* フェードアウトの進行。毎フレーム呼ぶ。 */
+  updateMusic(dt) {
+    for (const k in this.music) {
+      const el = this.music[k];
+      if (!el._fade || el.paused) continue;
+      el.volume = Math.max(0, el.volume - dt * 1.4);   // 約0.7秒で消える
+      if (el.volume <= .001) { el.pause(); el.currentTime = 0; el._fade = false; }
+    }
+  },
+  /* ミュート切替時に鳴っている曲へ即反映する */
+  applyMusicMute() {
+    for (const k in this.music) {
+      const el = this.music[k];
+      if (this.muted) el.volume = 0;
+      else if (k === this.playing && !el._fade) el.volume = this.MUSIC[k].vol;
     }
   },
 };
@@ -1201,7 +1233,7 @@ const Player = {
       Sound.sfxDamage(); Sound.sfxWingLost();
       FX.burst(this.group.position, 0xff6a7a, 12 + n * 4, .45 + n * .1);
       UI.flash('#ff4d5a'); UI.shake(.55 + n * .25);
-      if (n > 1) UI.popup(`僚機 -${n}`, '#ff4d5a');
+      if (n > 1) UI.popup(`味方 -${n}`, '#ff4d5a');
     } else {
       this.alive = false;
       Sound.sfxDamage();
@@ -2450,7 +2482,7 @@ const UI = {
   setBomb(cd) {
     const el = $('bombState');
     const ok = Wingmen.count >= CFG.bomb.cost;
-    if (cd <= 0) { el.textContent = ok ? `READY (右クリック / 僚機-${CFG.bomb.cost})` : `僚機 ${CFG.bomb.cost} 体必要`; el.className = ok ? 'ready' : 'cool'; }
+    if (cd <= 0) { el.textContent = ok ? `READY (右クリック / 味方-${CFG.bomb.cost})` : `味方 ${CFG.bomb.cost} 体必要`; el.className = ok ? 'ready' : 'cool'; }
     else { el.textContent = `CHARGE ${cd.toFixed(1)}s`; el.className = 'cool'; }
   },
   setShot(on) { const e = $('pillShot'); e.textContent = 'SHOT: ' + (on ? 'ON' : 'OFF'); e.classList.toggle('on', on); },
@@ -2486,6 +2518,7 @@ const UI = {
   showBossBar(on) { $('bossBar').classList.toggle('on', on); },
   showHud(on) { $('hud').classList.toggle('on', on); },
   screen(id) {
+    if (id !== 'scTitle') $('scTitle').classList.remove('artview');   // 一枚絵モードは持ち越さない
     document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id));
     if (!id) document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
   },
@@ -2679,7 +2712,7 @@ const Game = {
       ? 'クリック一発で画面内を即時ロックオン → 離してレーザー'
       : '左ドラッグで敵をなぞってロックオン → 離してレーザー';
     this.state = 'play';
-    Sound.resume(); Sound.playMusic('stage');
+    Sound.resume(); Sound.stopMusic(); Sound.playMusic('stage');   // リトライでも曲は頭から
     UI.message('STAGE 1', 'JELLYFISH HUNTER');
   },
 
@@ -2693,7 +2726,7 @@ const Game = {
     if (this.state !== 'play') return;
     if (this.bombCd > 0) { Sound.sfxBombFail(); UI.popup('ボム クールタイム中', '#8fa8b4'); return; }
     if (Wingmen.count < CFG.bomb.cost) {
-      Sound.sfxBombFail(); UI.popup(`僚機が ${CFG.bomb.cost} 体必要！`, '#ff4d5a'); return;
+      Sound.sfxBombFail(); UI.popup(`味方が ${CFG.bomb.cost} 体必要！`, '#ff4d5a'); return;
     }
     for (let i = 0; i < CFG.bomb.cost; i++) Wingmen.lose();   // コスト：僚機3体（古い順）
     this.bombCd = CFG.bomb.cooldown;
@@ -2707,7 +2740,7 @@ const Game = {
   },
 
   togglePause() {
-    if (this.state === 'play') { this.state = 'pause'; UI.screen('scPause'); Sound.stopMusic(); }
+    if (this.state === 'play') { this.state = 'pause'; UI.screen('scPause'); Sound.pauseMusic(); }
     else if (this.state === 'pause') { this.state = 'play'; UI.screen(''); Sound.playMusic(Boss.active ? 'boss' : 'stage'); }
   },
 
@@ -2743,8 +2776,8 @@ const Game = {
       $('endText').innerHTML = firstClear
         ? 'おめでとう！<b class="tt">武器セットアップ</b>と<b class="tt">HARD</b>が解放されました。<br>タイトル画面から装備を選んで、もう一度潜れます。'
         : unlockedNightmare
-          ? `<b class="tt">HARD</b> クリア！ 最高難易度 <b class="tt">NIGHTMARE</b> が解放されました。<br>僚機 ${kinds.length} 体と生還した。`
-          : `<b class="tt">${dl}</b> クリア！ 僚機 ${kinds.length} 体と生還した。`;
+          ? `<b class="tt">HARD</b> クリア！ 最高難易度 <b class="tt">NIGHTMARE</b> が解放されました。<br>味方 ${kinds.length} 体と生還した。`
+          : `<b class="tt">${dl}</b> クリア！ 味方 ${kinds.length} 体と生還した。`;
       UI.screen('scEnd');
       UI.fade(false);
       Sound.playMusic('ending');
@@ -2890,6 +2923,12 @@ const Menu = {
     click('btnRestart', () => Game.start());
     click('btnOverTitle', () => Game.toTitle());
     click('btnEndTitle', () => Game.toTitle());
+    // タイトル：メニュー以外をクリックすると、メニューを隠して一枚絵を鑑賞できる
+    $('scTitle').addEventListener('click', e => {
+      if (e.target.closest('.btn')) return;     // ボタン操作はそのまま通す
+      Sound.resume(); Sound.sfxUI();
+      $('scTitle').classList.toggle('artview');
+    });
   },
 };
 UI.popupTitle = msg => { UI.popup(msg, '#8fa8b4'); };
@@ -2955,6 +2994,7 @@ const clock = new THREE.Clock();
 function loop() {
   requestAnimationFrame(loop);
   const dt = Math.min(clock.getDelta(), 1 / 24);
+  Sound.updateMusic(dt);
   if (Game.state === 'play' || Game.state === 'over' || Game.state === 'end' || Game.state === 'title') {
     Game.update(dt);
   } else {
@@ -2993,6 +3033,7 @@ async function boot() {
   Ending.preload();
   Stage.build();
   UI.updateWingmen();
+  Sound.initMusic();          // タイトル表示中に BGM を先読みしておく
   Menu.refresh();
   Game.toTitle();
 }

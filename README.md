@@ -143,12 +143,16 @@ HARD / NIGHTMARE の解放を消して初回起動と同じ状態に戻します
 | キー | ファイル | 長さ | 鳴るタイミング | ループ |
 |---|---|---|---|---|
 | `stage`  | `audio/bgm_stage.mp3` | 3分49秒 | 出撃（ステージ開始） | ○ |
-| `boss`   | `audio/bgm_boss.mp3`  | 3分10秒 | ボスクラゲ出現 | ○ |
+| `boss`   | `audio/bgm_boss.mp3`  | 3分 | **WARNING 表示と同時** | ○ |
 | `ending` | `audio/fanfare_victory.wav` | 4秒 | エンディングの1枚絵と同時 | ✕（1回だけ） |
 | `gameover` | `audio/bgm_gameover.mp3` | 8秒 | ゲームオーバーになった瞬間 | ✕（1回だけ） |
 
 音量は `Sound.MUSIC` の `vol` で個別に指定します。`M` キーのミュートは
 BGM（`<audio>` の volume）と SE（WebAudio の master gain）の両方に効きます。
+
+**ボス前の演出**：ステージ曲は WARNING より少し手前でフェードアウトし、数秒の無音を
+挟んでから、WARNING の表示と同時にボス曲が頭から始まります。この無音区間で
+ポーズしても曲は復活しません（`Sound.resumeMusic()` は止めた曲がないときは何もしない）。
 
 ## 画面サイズ
 
@@ -190,7 +194,9 @@ CDN への接続は不要です。
 `models/props/` の6種を海底に散らしています（合計129体）。1種類につき
 `InstancedMesh` 1つにまとめているので、**ドローコールは6回**で済みます。
 自機が進んで後方へ抜けたものは `Props.recycle()` で奥へ巻き戻して使い回すため、
-ステージ全長にわたって景色が途切れません。
+ステージ全長にわたって景色が途切れません。やり直しで自機の位置が戻るときは
+`Props.reset()` で配り直します（巻き戻しは前方へ送るだけなので、これがないと
+2周目以降は飾りが全部はるか前方に取り残されて海底が空になります）。
 
 | | 数 | 幅 | 配置 |
 |---|---:|---|---|
@@ -246,7 +252,7 @@ Meshy から書き出した元データは1つ 7〜9MB（2048px のベースカ�
 ```
 index.html              ゲーム本体（HTML / CSS / JS を1ファイルに同梱）
 audio/bgm_stage.mp3     ステージBGM（Submerged Patrol・ループ）
-audio/bgm_boss.mp3      ボス戦BGM（Deep Pressure・ループ）
+audio/bgm_boss.mp3      ボス戦BGM（Leviathan's Wake・ループ）
 audio/fanfare_victory.wav 勝利のファンファーレ（4秒・エンディングで1回）
 audio/bgm_gameover.mp3  ゲームオーバーBGM（8秒・1回）
 images/title.webp       タイトル画面の1枚絵（ロゴ入り）

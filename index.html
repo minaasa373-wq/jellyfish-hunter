@@ -560,6 +560,9 @@ const Sound = {
   },
   /* ポーズ：再生位置を保ったまま止める */
   pauseMusic() { const el = this.music[this.playing]; if (el) el.pause(); },
+  /* ポーズ解除：止めた曲を続きから鳴らす。
+     ボス前の無音区間（playing が null）ではそのまま無音を保つ。 */
+  resumeMusic() { if (this.playing) this.playMusic(this.playing); },
   /* フェードアウトの進行。毎フレーム呼ぶ。 */
   updateMusic(dt) {
     for (const k in this.music) {
@@ -777,19 +780,31 @@ const Props = {
       this.meshes.push({ inst, zs, count: d.count });
     }
   },
+  /* z だけを書き換える（x/y・回転・大きさはそのまま） */
+  _setZ(g, i, z, m) {
+    g.zs[i] = z;
+    g.inst.getMatrixAt(i, m);
+    m.elements[14] = z;
+    g.inst.setMatrixAt(i, m);
+  },
+  /* ステージのやり直し時に、自機の位置を基準へ配り直す。
+     巻き戻しは「後方へ抜けたものを奥へ送る」だけなので、railZ が 0 に戻る
+     やり直しでは飾りが全部はるか前方に取り残されてしまう（2周目以降、
+     ステージの終盤まで海底が空っぽになる）。 */
+  reset(pz = 0) {
+    const m = new THREE.Matrix4();
+    for (const g of this.meshes) {
+      for (let i = 0; i < g.count; i++) this._setZ(g, i, pz + rand(-PROP_SPAN, 40), m);
+      g.inst.instanceMatrix.needsUpdate = true;
+    }
+  },
   /* 自機の後方へ抜けたものを、まとめて手前へ巻き戻す */
   recycle(pz) {
     const m = new THREE.Matrix4();
     for (const g of this.meshes) {
       let dirty = false;
       for (let i = 0; i < g.count; i++) {
-        if (g.zs[i] > pz + 60) {
-          g.zs[i] -= PROP_SPAN;
-          g.inst.getMatrixAt(i, m);
-          m.elements[14] = g.zs[i];
-          g.inst.setMatrixAt(i, m);
-          dirty = true;
-        }
+        if (g.zs[i] > pz + 60) { this._setZ(g, i, g.zs[i] - PROP_SPAN, m); dirty = true; }
       }
       if (dirty) g.inst.instanceMatrix.needsUpdate = true;
     }
@@ -2768,7 +2783,9 @@ const Stage = {
       { at: P(0.860), fn: () => { this.lineOf('shark', 4, { pattern: 'charge' }); this.lineOf('eel', 5, { pattern: 'anchor', y: -3.6 }); } },
       { at: P(0.900), fn: () => this.arcOf('jelly', 10, { pattern: 'drift' }) },
       { at: P(0.940), fn: () => { this.lineOf('shark', 5, { pattern: 'charge' }); this.arcOf('jelly', 6, { pattern: 'sine' }); } },
-      { at: P(0.975), fn: () => { UI.message('WARNING', 'ボス接近'); Sound.sfxWarn(); } },
+      // ボス前：先にステージ曲を消して静けさを作り、WARNING と同時にボス曲へ
+      { at: P(0.955), fn: () => Sound.stopMusic() },
+      { at: P(0.975), fn: () => { UI.message('WARNING', 'ボス接近'); Sound.sfxWarn(); Sound.playMusic('boss'); } },
       { at: P(1.000), fn: () => this.startBoss() },
     ];
   },
@@ -2911,6 +2928,7 @@ const Game = {
     this.applyDifficulty();
     this.time = 0; this.dist = 0; this.railZ = 0; this.railMul = 1; this.bombCd = 0; this.endT = 0;
     Stage.reset();
+    Props.reset(this.railZ);      // やり直しでも海底の飾りが自機の周りに戻るように
     Player.reset();
     // 初期僚機（仕様書に初期数の記載はないため、遊べる下限として3体から開始）
     for (let i = 0; i < CFG.wing.start; i++) Wingmen.add('jelly', _v1.set(rand(-2, 2), rand(-1, 1), 2).clone());
@@ -2950,7 +2968,7 @@ const Game = {
 
   togglePause() {
     if (this.state === 'play') { this.state = 'pause'; UI.screen('scPause'); Sound.pauseMusic(); }
-    else if (this.state === 'pause') { this.state = 'play'; UI.screen(''); Sound.playMusic(Boss.active ? 'boss' : 'stage'); }
+    else if (this.state === 'pause') { this.state = 'play'; UI.screen(''); Sound.resumeMusic(); }
   },
 
   gameOver() {

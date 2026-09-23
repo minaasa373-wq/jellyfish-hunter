@@ -110,6 +110,7 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
     <div id="pillWeapon" class="pill">なぞりロックオン 0/6</div>
     <div id="pillDiff" class="pill">NORMAL</div>
     <div id="pillMute" class="pill">SOUND ON (M)</div>
+    <div id="pillFull" class="pill">全画面 (F)</div>
   </div>
   <div class="hud-bl"><div class="lab">DEPTH PROGRESS</div>
     <div class="bar" style="width:220px;height:6px"><i id="progFill"></i></div></div>
@@ -147,6 +148,7 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
       <button class="btn" id="btnHelp">あそびかた<span class="tag">HOW TO PLAY</span></button>
     </div>
     <div class="hint" id="clearMark"></div>
+    <div class="hint" style="opacity:.45">F キーで全画面表示</div>
   </div>
 
   <div class="screen" id="scHelp">
@@ -159,6 +161,7 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
         <b>スペース</b><span>通常ショット ON / OFF（正面へオートファイア・威力は最弱）</span>
         <b>右クリック</b><span>ボム（画面内の敵と弾を全消し・僚機を1体消費・CT5秒）</span>
         <b>M</b><span>サウンド ミュート切替</span>
+        <b>F</b><span>全画面表示 ON / OFF</span>
         <b>P / ESC</b><span>ポーズ</span>
       </div>
     </div>
@@ -246,7 +249,9 @@ const CFG = {
      hitTick: ダメージ判定の最小間隔。無敵ではなく「1回の接触で僚機が
               フレーム数ぶん一気に溶ける」のを防ぐためだけのもの。 */
   player:  { speed: 14.5, bx: 8.2, by: 4.6, radius: 0.62, invuln: 0.3, hitTick: 0.12, lerp: 12 },
-  cam:     { fov: 50, back: 8.6, up: 1.95, lookAhead: 15, follow: 0.42 },
+  /* fov は 16:9 のときの縦画角。minHalfW は「常に見えていてほしい」自機平面での
+     横の半幅で、ウィンドウが横に狭いときはこれが収まるよう画角を自動で広げる。 */
+  cam:     { fov: 50, back: 8.6, up: 1.95, lookAhead: 15, follow: 0.42, minHalfW: 6.4 },
   shot:    { rate: 0.105, speed: 115, dmg: 5, radius: .34 },   // 通常ショット＝最弱
   laser:   { dmg: 105, travel: 0.34, radius: .75 },            // ロックオンレーザー＝最強
   homing:  { dmg: 44, speed: 34, turn: 5.2, life: 4.0, radius: .62 }, // 僚機弾（レーザーより明確に遅い）
@@ -659,6 +664,7 @@ addEventListener('keydown', e => {
   Input.keys[e.code] = true;
   if (e.code === 'KeyM') { UI.setMute(Sound.toggleMute()); }
   if (e.code === 'Space' && Game.state === 'play') { Game.toggleAutoShot(); }
+  if (e.code === 'KeyF') { toggleFullscreen(); UI.setFullscreen(); }
   if ((e.code === 'KeyP' || e.code === 'Escape')) Game.togglePause();
 });
 addEventListener('keyup', e => { Input.keys[e.code] = false; });
@@ -2177,6 +2183,15 @@ const UI = {
   },
   setShot(on) { const e = $('pillShot'); e.textContent = 'SHOT: ' + (on ? 'ON' : 'OFF'); e.classList.toggle('on', on); },
   setMute(m) { const e = $('pillMute'); e.textContent = m ? 'SOUND OFF (M)' : 'SOUND ON (M)'; e.classList.toggle('on', !m); },
+  setFullscreen() {
+    const e = $('pillFull'); if (!e) return;
+    // fullscreenchange の直後は状態が確定していないことがあるので少し待って読む
+    setTimeout(() => {
+      const on = isFullscreen();
+      e.textContent = on ? '全画面を解除 (F)' : '全画面 (F)';
+      e.classList.toggle('on', on);
+    }, 120);
+  },
   setWeaponPill() {
     const e = $('pillWeapon');
     const nm = Game.weapon === 'burst' ? '強化ロックオン' : 'なぞりロックオン';
@@ -2503,7 +2518,7 @@ const Game = {
     // 初期僚機（仕様書に初期数の記載はないため、遊べる下限として3体から開始）
     for (let i = 0; i < CFG.wing.start; i++) Wingmen.add('jelly', _v1.set(rand(-2, 2), rand(-1, 1), 2).clone());
     camera.position.set(0, CFG.cam.up, CFG.cam.back);
-    UI.updateWingmen(); UI.setShot(false); UI.setDiff(); UI.setMute(Sound.muted); UI.setWeaponPill();
+    UI.updateWingmen(); UI.setShot(false); UI.setDiff(); UI.setMute(Sound.muted); UI.setWeaponPill(); UI.setFullscreen();
     UI.showHud(true); UI.screen(''); UI.fade(false);
     $('hudHint').textContent = this.weapon === 'burst'
       ? 'クリック一発で画面内を即時ロックオン → 離してレーザー'
@@ -2732,16 +2747,56 @@ UI.popupTitle = msg => { UI.popup(msg, '#8fa8b4'); };
 /* ------------------------------------------------------------------ *
  * 21. リサイズ / メインループ / 起動
  * ------------------------------------------------------------------ */
+/* 縦画角を決める。横に狭いウィンドウでは cam.minHalfW が収まるまで画角を広げ、
+   自機や敵が画面外に出ないようにする。16:9 では従来と同じ 50 度になる。 */
+function fitFov(aspect) {
+  const d = CFG.cam.back;
+  const halfH = Math.tan(CFG.cam.fov * Math.PI / 360) * d;   // 16:9 時の縦半幅
+  const fovForH = 2 * Math.atan(halfH / d);
+  const fovForW = 2 * Math.atan((CFG.cam.minHalfW / Math.max(.2, aspect)) / d);
+  const fov = Math.min(100 * Math.PI / 180, Math.max(fovForH, fovForW));
+  return fov * 180 / Math.PI;
+}
+
 function onResize() {
-  const w = innerWidth, h = innerHeight;
+  // ウィンドウではなくキャンバスの実寸を見る。ブラウザのUIや全画面切替、
+  // ズーム、devtools など理由を問わず実際の表示サイズに追従できる。
+  const r = canvas.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width  || innerWidth));
+  const h = Math.max(1, Math.round(r.height || innerHeight));
   const dpr = Math.min(devicePixelRatio || 1, 1.6);
+
   renderer.setPixelRatio(dpr);
   renderer.setSize(w, h, false);
-  camera.aspect = w / h; camera.updateProjectionMatrix();
-  ov.width = w * dpr; ov.height = h * dpr; ov._dpr = dpr;
+
+  camera.aspect = w / h;
+  camera.fov = fitFov(camera.aspect);
+  camera.updateProjectionMatrix();
+
+  ov.width = Math.round(w * dpr); ov.height = Math.round(h * dpr); ov._dpr = dpr;
   ov.style.width = w + 'px'; ov.style.height = h + 'px';
 }
+
 addEventListener('resize', onResize);
+addEventListener('orientationchange', () => setTimeout(onResize, 120));
+document.addEventListener('fullscreenchange', () => { setTimeout(onResize, 60); UI.setFullscreen(); });
+document.addEventListener('webkitfullscreenchange', () => { setTimeout(onResize, 60); UI.setFullscreen(); });
+visualViewport && visualViewport.addEventListener('resize', onResize);
+// キャンバスの箱が変わったら理由を問わず追従する（最も取りこぼしが少ない）
+if (window.ResizeObserver) new ResizeObserver(onResize).observe(canvas);
+
+/* --- 全画面（F キー） --- */
+function isFullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function toggleFullscreen() {
+  try {
+    if (!isFullscreen()) {
+      const el = document.documentElement;
+      (el.requestFullscreen || el.webkitRequestFullscreen || (() => {})).call(el);
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen || (() => {})).call(document);
+    }
+  } catch (e) { /* ブラウザに拒否されても操作は続行できるようにする */ }
+}
 
 /* デバッグ／調整用フック（コンソールから JH.CFG などを触れる） */
 window.JH = { THREE, CFG, DIFF, DIFF_ORDER, Save, Sound, Game, Player, Wingmen, Enemies, Boss, LockOn, Bullets, Sched, Stage, Ending, UI, MODELS, scene, camera, renderer };

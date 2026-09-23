@@ -58,19 +58,26 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
 /* タイトル：イラストにロゴが入っているので CSS のロゴ文字は使わない。
    ロゴは絵の上部中央にあるため center top 基準で cover し、
    下側にだけ暗い帯を重ねてボタンを読みやすくする。 */
-#scTitle{background:url(images/title.webp) center top / cover no-repeat,#04121b}
-/* 下側の暗い帯。ボタンの上に乗らないよう ::before に分け、
-   一枚絵モードではこれだけを消して絵をそのまま見せる。 */
-#scTitle::before{content:'';position:absolute;inset:0;pointer-events:none;transition:opacity .35s;
-  background:linear-gradient(180deg,rgba(2,12,20,0) 0%,rgba(2,12,20,.05) 28%,rgba(1,8,14,.52) 44%,
-    rgba(1,8,14,.88) 68%,rgba(1,8,14,.97) 100%)}
+/* 暗い帯は「要素の背景」として重ねる。絶対配置の擬似要素にすると
+   スクロール時に一緒に流れてしまい、下に送られた文字が明るい絵の上に
+   乗って読めなくなる。背景レイヤーなら常に画面の下側が暗いままになる。 */
+#scTitle{
+  background:
+    linear-gradient(180deg,rgba(2,12,20,0) 0%,rgba(2,12,20,.05) 24%,rgba(1,8,14,.5) 42%,
+      rgba(1,8,14,.9) 66%,rgba(1,8,14,.98) 100%) center top / 100% 100% no-repeat,
+    url(images/title.webp) center top / cover no-repeat,
+    #04121b;
+}
 #scTitle > *{position:relative;z-index:1}
-#scTitle > *:first-child{margin-top:min(40vh,320px)}
+/* 画面が低いほどロゴとの間隔を詰め、スクロールが出ないようにする */
+#scTitle{gap:12px;padding:20px}
+#scTitle > *:first-child{margin-top:clamp(96px,40vh,320px)}
+#scTitle .btn{padding:10px 16px;font-size:clamp(13px,2vw,17px)}
+#scTitle .btn .tag{margin-top:2px}
 #scTitle .menu,#scTitle .hint{transition:opacity .3s}
 #scTitle .hint.dim{opacity:.45}
 /* 一枚絵モード：メニューと帯を消し、絵の全体が入るように contain にする */
-#scTitle.artview{background-size:contain;background-position:center center}
-#scTitle.artview::before{opacity:0}
+#scTitle.artview{background:url(images/title.webp) center center / contain no-repeat,#04121b}
 #scTitle.artview .menu,#scTitle.artview .hint,#scTitle.artview .hint.dim{opacity:0;pointer-events:none}
 #artBack{position:absolute;left:0;right:0;bottom:16px;margin:0;z-index:2;text-align:center;
   font-size:12px;letter-spacing:.14em;color:#dff4ff;opacity:0;pointer-events:none;transition:opacity .3s;
@@ -1217,7 +1224,8 @@ const Player = {
         if (Boss.group.position.distanceTo(this.group.position) < Boss.bodyRadius + CFG.player.radius) this.hit();
         // 触手を伸ばす攻撃は重い一撃（僚機3体ぶん）
         for (const t of Boss.lunges) {
-          if (t.active && t.tip.distanceTo(this.group.position) < 1.5 + CFG.player.radius) { this.hit(CFG.boss.tentacleCost); break; }
+          // 触手の太さもボスの大きさに比例するので、判定半径も同じ比率で広げる
+          if (t.active && t.tip.distanceTo(this.group.position) < 1.5 * BOSS_K + CFG.player.radius) { this.hit(CFG.boss.tentacleCost); break; }
         }
       }
     }
@@ -1580,7 +1588,12 @@ const Enemies = {
 /* ------------------------------------------------------------------ *
  * 12. ボス（ボスクラゲ）— ツノ／触手2本／本体の個別ロックオン判定
  * ------------------------------------------------------------------ */
-const BOSS_SCALE = 18.0;   // 最大辺がこの長さになるよう自動で倍率を決める
+/* ボスの大きさ。モデルの最大辺がこの長さになるよう倍率を自動計算する。
+   45 のとき実寸は 幅45 × 高さ34.5 × 奥行28 で、戦闘中の距離だと画面の
+   縦7〜8割を占める。当たり判定・発光・触手の太さもすべてこの値に比例させて
+   いるので、ここ1か所を変えるだけで見た目と判定が揃って大きくなる。 */
+const BOSS_SCALE = 45.0;
+const BOSS_K = BOSS_SCALE / 18;   // 旧サイズ(18)基準の倍率。絶対値で書かれた寸法に掛ける。
 
 /* ボスクラゲのリグ（UniRig 出力）。骨は名前で引くので、
    モデルを差し替えても名前さえ合っていれば動く。 */
@@ -1606,7 +1619,7 @@ const BOSS_RIG = {
 const Boss = {
   active: false, alive: false, group: null, obj: null,
   parts: null, phase: 'idle', phaseT: 0, fireT: 0, lungeT: 0, atkT: 0, atkIdx: 0,
-  bodyRadius: 6.2, summonsLeft: 0, summonT: 0, deathT: 0, hitFlash: 0,
+  bodyRadius: 6.2 * BOSS_K, summonsLeft: 0, summonT: 0, deathT: 0, hitFlash: 0,
   rig: null, animT: 0, pulse: 0, reach: { tenL: 0, tenR: 0 },
   lunges: [], damageMulBody: .26,
 
@@ -1638,8 +1651,9 @@ const Boss = {
     this.obj.rotation.y = 0;                // +Z 向き＝プレイヤーを向く
     this.collectRig();
     this.group.add(this.obj);
-    const glow = new THREE.PointLight(0xaee6ff, 46, 48, 2);
-    glow.position.set(0, 3, 11); this.group.add(glow);
+    // 発光もボスの大きさに比例させる（decay 2 なので明るさは距離の2乗で効く）
+    const glow = new THREE.PointLight(0xaee6ff, 46 * BOSS_K * BOSS_K, 48 * BOSS_K, 2);
+    glow.position.set(0, 3 * BOSS_K, 11 * BOSS_K); this.group.add(glow);
     this.group.visible = false;
     scene.add(this.group);
 
@@ -1664,10 +1678,11 @@ const Boss = {
       hp: hp * m, maxHp: hp * m, alive: true, flash: 0, smoke: 0,
     });
     this.parts = {
-      horn: mk('horn', 'ツノ',  0.00,  0.335,  0.04, 2.9, 430),
-      tenL: mk('tenL', '触手L', -0.40,  0.095, 0.02, 3.6, 350),
-      tenR: mk('tenR', '触手R',  0.40,  0.095, 0.02, 3.6, 350),
-      body: mk('body', '本体',   0.00, -0.055, 0.00, 5.5, 1150),
+      // 半径もモデルの大きさに比例させる（S に対する比で指定）
+      horn: mk('horn', 'ツノ',  0.00,  0.335,  0.04, S * .161, 430),
+      tenL: mk('tenL', '触手L', -0.40,  0.095, 0.02, S * .200, 350),
+      tenR: mk('tenR', '触手R',  0.40,  0.095, 0.02, S * .200, 350),
+      body: mk('body', '本体',   0.00, -0.055, 0.00, S * .306, 1150),
     };
     // 骨があれば判定位置を骨に載せる。触手が揺れればロックオン枠も一緒に動く。
     if (this.rig && this.rig.byName) {
@@ -1800,17 +1815,19 @@ const Boss = {
 
     switch (this.phase) {
       case 'entry':
-        g.position.z = damp(g.position.z, pz - 42, 1.05, dt);
+        g.position.z = damp(g.position.z, pz - 48, 1.05, dt);
         g.position.y = 1.5 + Math.sin(this.phaseT * .8) * .8;
         if (this.phaseT > 3.4) { this.phase = 'fight1'; this.phaseT = 0; }
         break;
 
       case 'fight1':
       case 'fight2': {
-        const near = this.phase === 'fight2' ? 38 : 44;
+        // ボスが大きいので、全身とロックオン枠が画面に収まる距離で構える
+        const near = this.phase === 'fight2' ? 46 : 52;
         g.position.z = damp(g.position.z, pz - near, .9, dt);
         g.position.x = damp(g.position.x, Math.sin(this.phaseT * .42) * 5.4 + Player.x * .28, 1.1, dt);
-        g.position.y = damp(g.position.y, 1.4 + Math.sin(this.phaseT * .63) * 2.1, 1.2, dt);
+        // 巨体なので上下の揺れは控えめに（ロックオン枠が画面外へ出ないため）
+        g.position.y = damp(g.position.y, 1.4 + Math.sin(this.phaseT * .63) * 1.3, 1.2, dt);
         g.rotation.z = Math.sin(this.phaseT * .5) * .1;
         g.rotation.y = Math.sin(this.phaseT * .33) * .12;
 
@@ -1885,7 +1902,7 @@ const Boss = {
       const len = Math.max(.001, dir.length());
       L.mesh.position.copy(L.from);
       L.mesh.quaternion.setFromUnitVectors(_v2.set(0, -1, 0), dir.normalize());
-      L.mesh.scale.set(1, len, 1);
+      L.mesh.scale.set(BOSS_K, len, BOSS_K);   // 太さもボスの大きさに合わせる
       L.mesh.material.opacity = .82 * Math.min(1, e2 * 3);
       if (Math.random() < .12) FX.bubbles(_v1.lerpVectors(L.from, L.tip, .45), 1, 1.4);
       if (k >= 1) { L.active = false; L.mesh.visible = false; }

@@ -155,8 +155,8 @@ BGM（`<audio>` の volume）と SE（WebAudio の master gain）の両方に効
 
 | キー | ファイル | 長さ | 鳴るタイミング |
 |---|---|---|---|
-| `lock` | `audio/se_lock.wav` | 0.36秒 | 敵をロックオンしたとき（上限に達したロックは少し高く鳴る） |
-| `laser` | `audio/se_laser.wav` | 1.27秒 | ロックオンレーザーの発射 |
+| `lock` | `audio/se_lockon.wav` | 0.36秒 | 敵をロックオンしたとき（上限に達したロックは少し高く鳴る） |
+| `laser` | `audio/se_laser_fire.wav` | 1.27秒 | ロックオンレーザーの発射 |
 
 合成音と違って長さがあるため、一括ロックの10体や斉射の10発がそのまま重なると
 音が潰れます。`Sound.SFX` の `gap`（最短間隔）で鳴らしすぎを抑えていて、
@@ -269,6 +269,8 @@ audio/bgm_stage.mp3     ステージBGM（Submerged Patrol・ループ）
 audio/bgm_boss.mp3      ボス戦BGM（Leviathan's Wake・ループ）
 audio/fanfare_victory.wav 勝利のファンファーレ（4秒・エンディングで1回）
 audio/bgm_gameover.mp3  ゲームオーバーBGM（8秒・1回）
+audio/se_lockon.wav     ロックオン音
+audio/se_laser_fire.wav レーザー発射音
 images/title.webp       タイトル画面の1枚絵（ロゴ入り）
 images/ending.webp      エンディングの1枚絵
 models/*.glb            自機・雑魚3種・中ボス・ボスの3Dモデル

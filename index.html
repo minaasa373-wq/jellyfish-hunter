@@ -495,8 +495,8 @@ const Sound = {
      ロックオンは一括ロックで10回、レーザーは斉射で10発が一気に呼ばれるので、
      最短間隔（gap 秒）を設けて鳴らしすぎを抑えている。音量と間隔はここだけで調整可能。 */
   SFX: {
-    lock:  { url: 'audio/se_lock.wav',  vol: .55, gap: .045 },
-    laser: { url: 'audio/se_laser.wav', vol: .50, gap: .090 },
+    lock:  { url: 'audio/se_lockon.wav',     vol: .385, gap: .045 },   // ロックオン音
+    laser: { url: 'audio/se_laser_fire.wav', vol: .50,  gap: .090 },   // レーザー発射音
   },
   buffers: {}, _sfxT: {},
   loadSfx() {

@@ -55,6 +55,14 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
 .keys{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:clamp(11px,1.6vw,13px);text-align:left;align-items:baseline}
 .keys b{color:var(--yellow);font-weight:700;white-space:nowrap}
 .hint{font-size:12px;opacity:.6;letter-spacing:.08em}
+/* あそびかた：見出しの右に「大人向け／子ども向け」の切替ボタンを置く */
+.helpHead{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;flex:0 0 auto}
+.helpBody{display:contents}
+/* display:contents は hidden 属性の display:none を打ち消してしまうので明示する */
+.helpBody[hidden]{display:none}
+.btn.small{width:auto;padding:8px 16px;font-size:clamp(12px,1.7vw,14px);letter-spacing:.04em}
+.btn.small .tag{font-size:10px;margin-top:2px}
+.btn.small.on{background:rgba(22,96,132,.9);border-color:var(--yellow);color:#fff6cf}
 /* タイトル：イラストにロゴが入っているので CSS のロゴ文字は使わない。
    ロゴは絵の上部中央にあるため center top 基準で cover し、
    下側にだけ暗い帯を重ねてボタンを読みやすくする。 */
@@ -207,7 +215,12 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
   </div>
 
   <div class="screen" id="scHelp">
-    <h1 class="logo" style="font-size:clamp(24px,4vw,44px)">あそびかた</h1>
+    <div class="helpHead">
+      <h1 class="logo" style="font-size:clamp(24px,4vw,44px);margin:0">あそびかた</h1>
+      <button class="btn small" id="btnHelpMode">大人向け<span class="tag">くわしい説明</span></button>
+    </div>
+
+    <div id="helpKids" class="helpBody">
     <div class="card">
       <div class="keys">
         <b>いどう</b><span>W ⬆️　A ⬅️　S ⬇️　D ➡️</span>
@@ -239,6 +252,53 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
         たくさんのてきをロックオンしてから、いっきにこうげきするのがポイントです！
       </div>
     </div>
+    </div><!-- /#helpKids -->
+
+    <!-- 大人向け：ルールの理由や駆け引きまで書いた版 -->
+    <div id="helpAdult" class="helpBody" hidden>
+      <div class="card">
+        <div class="small" style="text-align:left;max-width:none;margin-bottom:8px"><b class="tt">🎮 基本操作</b></div>
+        <div class="keys">
+          <b>W / A / S / D</b><span>ダイバーを移動</span>
+          <b>左クリック長押し＋なぞる</b><span>敵をロックオン（複数可）</span>
+          <b>左クリックを離す</b><span>ロックオンレーザー＋味方のホーミング弾を一斉発射</span>
+          <b>スペース</b><span>自動ショット ON / OFF</span>
+          <b>右クリック</b><span>ボム。画面内の敵と敵弾をすべて消去。味方を3体消費</span>
+          <b>M</b><span>サウンド ON / OFF</span>
+          <b>Enter</b><span>全画面表示 ON / OFF</span>
+          <b>P / ESC</b><span>ポーズ</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="small" style="text-align:left;max-width:none">
+          <b class="tt">🪼 敵を味方にしよう！</b><br>
+          敵をロックオンして撃破すると、その敵が味方になります。<br>
+          味方はダイバーの周囲を回りながら、自動で敵をホーミング攻撃します。<br>
+          味方は最大10体まで増やせます。<br>
+          敵を倒して味方を増やし、攻撃力を高めながらステージを進みましょう。<br><br>
+
+          <b class="tt">❤️ 味方＝ライフ</b><br>
+          このゲームでは、味方の数がそのままライフになります。<br>
+          敵の攻撃に被弾すると、味方を1体失います。<br>
+          味方が0体の状態で被弾するとゲームオーバーです。<br>
+          味方を増やすことは、攻撃力を上げるだけでなく、生存力を高めることにもつながります。<br><br>
+
+          <b class="tt">🎯 ロックオンと一斉攻撃</b><br>
+          敵をなぞってロックオンしている間は、味方の攻撃が停止します。<br>
+          そして、左クリックを離すと、ロックオンレーザー＋味方のホーミング弾が一斉に発射されます。<br>
+          複数の敵をまとめてロックオンしてから攻撃することで、敵を一気に撃破できます。<br>
+          ただし、ロックオン中は味方の攻撃が止まるため、いつ攻撃するかの判断が重要です。<br><br>
+
+          <b class="tt">💣 ボム</b><br>
+          右クリックでボムを使用します。<br>
+          画面内の敵と敵弾をすべて消去できます。<br>
+          ただし、使用すると味方を3体消費します。<br>
+          ピンチを切り抜けるために使うか、味方を温存するか。<br>
+          使うタイミングが攻略のポイントです。
+        </div>
+      </div>
+    </div><!-- /#helpAdult -->
+
     <button class="btn" id="btnHelpBack" style="width:min(300px,80vw)">もどる</button>
   </div>
 
@@ -370,6 +430,15 @@ const Save = {
     return this.data;
   },
   write() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.data)); } catch (e) {} },
+  /* 解放状態を消して初回起動と同じ状態に戻す（デバッグ用）。
+     サウンドのミュートだけは操作設定なので引き継ぐ。 */
+  reset() {
+    const muted = this.data.muted;
+    this.data = { cleared: false, weaponUnlocked: false, hardUnlocked: false, nightmareUnlocked: false,
+                  weapon: 'normal', diff: 'normal', muted };
+    this.write();
+    return this.data;
+  },
 };
 Save.load();
 
@@ -445,6 +514,7 @@ const Sound = {
     stage:  { url: 'audio/bgm_stage.mp3',        loop: true,  vol: .30 },
     boss:   { url: 'audio/bgm_boss.mp3',         loop: true,  vol: .40 },
     ending: { url: 'audio/fanfare_victory.wav',  loop: false, vol: .60 },  // 4秒・1回だけ
+    gameover: { url: 'audio/bgm_gameover.mp3',   loop: false, vol: .60 },  // 8秒・1回だけ
   },
   music: {}, musicReady: false, playing: null,
 
@@ -839,6 +909,32 @@ const Input = {
   lmb: false, lmbJustDown: false, lmbJustUp: false, rmbJustDown: false,
   reset() { this.lmbJustDown = this.lmbJustUp = this.rmbJustDown = false; },
 };
+/* --- デバッグ：セーブデータの初期化 --------------------------------
+   タイトル画面で R → E → S → E → T の順に押すと、武器セットアップと
+   HARD / NIGHTMARE の解放を消して初回起動と同じ状態に戻す。
+   ・タイトル画面でしか受け付けない
+   ・5キーを順番どおりに、それぞれ1.2秒以内に続けて押す必要がある
+   ・途中で違うキーを押すと最初からやり直し
+   ので、遊んでいて偶然発動することはない。
+   コンソールからは JH.Save.reset() → JH.Menu.refresh() でも同じことができる。 */
+const RESET_SEQ = ['KeyR', 'KeyE', 'KeyS', 'KeyE', 'KeyT'];
+let resetStep = 0, resetLast = 0;
+function debugResetKey(code) {
+  if (Game.state !== 'title') { resetStep = 0; return; }
+  const now = performance.now();
+  if (now - resetLast > 1200) resetStep = 0;          // 間が空いたら仕切り直し
+  resetLast = now;
+  resetStep = (code === RESET_SEQ[resetStep]) ? resetStep + 1
+            : (code === RESET_SEQ[0] ? 1 : 0);
+  if (resetStep < RESET_SEQ.length) return;
+  resetStep = 0;
+  Save.reset();
+  Game.diff = 'normal'; Game.weapon = 'normal';
+  Menu.refresh();
+  Sound.sfxLockFull();
+  UI.popup('セーブデータを初期化しました', '#ffe14d');
+}
+
 addEventListener('keydown', e => {
   // Enter はフォーカスの当たったボタンを既定で押してしまうので、必ず抑止する。
   // （マウスで押したボタンにフォーカスが残っていても二重に発動しない）
@@ -850,6 +946,7 @@ addEventListener('keydown', e => {
   // 全画面は Enter。移動の D の隣にある F だと誤爆するため離れたキーにしている。
   if (e.code === 'Enter' || e.code === 'NumpadEnter') { toggleFullscreen(); UI.setFullscreen(); }
   if ((e.code === 'KeyP' || e.code === 'Escape')) Game.togglePause();
+  debugResetKey(e.code);
 });
 addEventListener('keyup', e => { Input.keys[e.code] = false; });
 addEventListener('blur', () => { Input.keys = {}; Input.lmb = false; });
@@ -2859,7 +2956,7 @@ const Game = {
   gameOver() {
     if (this.state !== 'play') return;
     this.state = 'over';
-    Sound.stopMusic();
+    Sound.playMusic('gameover');   // ステージ曲はフェードアウトしつつ1回だけ流す
     setTimeout(() => {
       if (this.state !== 'over') return;
       UI.showHud(false); UI.screen('scOver');
@@ -3013,10 +3110,24 @@ const Menu = {
     $('wpNormal').classList.toggle('sel', Game.weapon !== 'burst');
     $('wpBurst').classList.toggle('sel', Game.weapon === 'burst');
   },
+  /* あそびかたの表示を切り替える。開くたびに子ども向けから始める。 */
+  helpAdult: false,
+  setHelpMode(adult) {
+    this.helpAdult = !!adult;
+    $('helpKids').hidden = this.helpAdult;
+    $('helpAdult').hidden = !this.helpAdult;
+    const b = $('btnHelpMode');
+    b.firstChild.nodeValue = this.helpAdult ? '子ども向け' : '大人向け';
+    b.querySelector('.tag').textContent = this.helpAdult ? 'やさしい説明' : 'くわしい説明';
+    b.classList.toggle('on', this.helpAdult);
+    $('scHelp').scrollTop = 0;
+  },
   init() {
     const click = (id, fn) => $(id).addEventListener('click', () => { Sound.resume(); Sound.sfxUI(); fn(); });
     click('btnStart', () => Game.start());
-    click('btnHelp', () => { Game.state = 'help'; UI.screen('scHelp'); });
+    click('btnHelp', () => { Game.state = 'help'; UI.screen('scHelp'); this.setHelpMode(false); });
+    // あそびかた：子ども向け ⇄ 大人向け（くわしい説明）の切替
+    click('btnHelpMode', () => this.setHelpMode(!this.helpAdult));
     click('btnHelpBack', () => Game.toTitle());
     click('btnDiff', () => {
       if (!Save.data.hardUnlocked) { UI.popupTitle('1周クリアで HARD が解放されます'); return; }
@@ -3100,7 +3211,7 @@ function toggleFullscreen() {
 }
 
 /* デバッグ／調整用フック（コンソールから JH.CFG などを触れる） */
-window.JH = { THREE, CFG, DIFF, DIFF_ORDER, Save, Sound, Game, Player, Wingmen, Enemies, Boss, LockOn, Bullets, Sched, Stage, Ending, UI, MODELS, PROPS, Props, scene, camera, renderer };
+window.JH = { THREE, CFG, DIFF, DIFF_ORDER, Save, Sound, Game, Menu, Player, Wingmen, Enemies, Boss, LockOn, Bullets, Sched, Stage, Ending, UI, MODELS, PROPS, Props, scene, camera, renderer };
 
 const clock = new THREE.Clock();
 function loop() {

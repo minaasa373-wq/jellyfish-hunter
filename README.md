@@ -159,6 +159,8 @@ CDN への接続は不要です。
 
 ```
 index.html              ゲーム本体（HTML / CSS / JS を1ファイルに同梱）
+images/title.webp       タイトル画面の1枚絵（ロゴ入り）
+images/ending.webp      エンディングの1枚絵
 models/*.glb            自機・雑魚3種・中ボス・ボスの3Dモデル
 vendor/                 three.js r180（module.min + core.min）, GLTFLoader, BufferGeometryUtils, SkeletonUtils
 jellyfish-hunter-spec.md 仕様書
@@ -199,9 +201,10 @@ jellyfish-hunter-spec.md 仕様書
 - **ボムのコスト**: 僚機3体（`CFG.bomb.cost`）。3体未満では発動しません。
 - **BGM / SE**: 外部素材を使わず WebAudio で合成しています（ステージ曲・ボス曲・
   エンディング曲を差し替え）。
-- **エンディング**: Canvas2D で描いた海中の1枚絵に、実際の3Dモデル（自機＋生存した僚機）を
-  透過レンダリングして合成しています。
-- **タイトル**: 仕様書では未定のため、スペック名の `JELLYFISH HUNTER` を採用。
+- **タイトル / エンディング**: 用意された1枚絵（`images/`）をそのまま表示します。
+  タイトルは絵の上部中央にロゴが入っているため `center top` 基準で `cover` し、
+  下側にだけ暗い帯を重ねてメニューを読ませています。
+- **タイトル**: 仕様書では未定のため、スペック名の `JELLYFISH HUNTER` を採用（ロゴは1枚絵に含まれます）。
 
 ## ライセンス
 

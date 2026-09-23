@@ -55,6 +55,36 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
 .keys{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:clamp(11px,1.6vw,13px);text-align:left;align-items:baseline}
 .keys b{color:var(--yellow);font-weight:700;white-space:nowrap}
 .hint{font-size:12px;opacity:.6;letter-spacing:.08em}
+/* タイトル：イラストにロゴが入っているので CSS のロゴ文字は使わない。
+   ロゴは絵の上部中央にあるため center top 基準で cover し、
+   下側にだけ暗い帯を重ねてボタンを読みやすくする。 */
+#scTitle{
+  background:
+    linear-gradient(180deg,rgba(2,12,20,0) 0%,rgba(2,12,20,.05) 28%,rgba(1,8,14,.52) 44%,
+      rgba(1,8,14,.88) 68%,rgba(1,8,14,.97) 100%),
+    url(images/title.webp) center top / cover no-repeat,
+    #04121b;
+}
+#scTitle > *:first-child{margin-top:min(40vh,320px)}
+/* 絵の上に置くので、ボタンは背景を濃くして文字を確実に読ませる */
+#scTitle .btn{background:rgba(3,17,27,.88);border-color:rgba(111,232,255,.55);backdrop-filter:blur(2px)}
+#scTitle .btn:hover:not(:disabled){background:rgba(20,86,118,.94)}
+#scTitle .btn.primary{background:linear-gradient(180deg,rgba(46,38,10,.92),rgba(24,18,4,.92));border-color:var(--yellow)}
+#scTitle .btn.primary:hover{background:linear-gradient(180deg,rgba(92,74,16,.95),rgba(52,40,8,.95))}
+#scTitle .hint{text-shadow:0 2px 10px rgba(0,0,0,.95)}
+/* エンディング：1枚絵をそのまま見せる */
+#endImage{width:min(980px,94vw);border-radius:14px;display:block;
+  box-shadow:0 22px 70px rgba(0,0,0,.7);border:1px solid rgba(111,232,255,.25);background:#02121c}
+.endWrap{position:relative;display:inline-block;max-width:100%}
+/* 明るいイラストの上でも THE END を確実に読ませるための下部の暗い帯 */
+.endWrap::after{content:'';position:absolute;left:0;right:0;bottom:0;height:30%;pointer-events:none;
+  background:linear-gradient(180deg,rgba(1,8,14,0),rgba(1,8,14,.34) 45%,rgba(1,8,14,.78));
+  border-radius:0 0 14px 14px}
+.endWrap .theEnd{position:absolute;left:0;right:0;bottom:4%;text-align:center;pointer-events:none;z-index:1;
+  font-weight:800;letter-spacing:.18em;font-size:clamp(26px,4.6vw,62px);
+  background:linear-gradient(180deg,#ffffff,#d6f7ff 45%,#ffe14d 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 3px 12px rgba(0,16,28,.95)) drop-shadow(0 0 24px rgba(90,220,255,.45))}
 #bar,.bar{width:min(420px,80vw);height:8px;border-radius:99px;background:rgba(111,232,255,.14);overflow:hidden}
 #bar > i,.bar > i{display:block;height:100%;width:0%;background:linear-gradient(90deg,#2ea7cc,#8ff0ff);transition:width .2s}
 #hud{position:fixed;inset:0;pointer-events:none;display:none;padding:14px 18px;
@@ -90,8 +120,6 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
   font-weight:800;letter-spacing:.2em;opacity:0;transition:opacity .3s;text-align:center;line-height:1.35}
 #msg.on{opacity:1}
 #msg .s2{display:block;font-size:.42em;letter-spacing:.3em;opacity:.8;margin-top:8px;font-weight:600}
-#endCanvas{width:min(900px,94vw);border-radius:14px;box-shadow:0 22px 70px rgba(0,0,0,.7);
-  border:1px solid rgba(111,232,255,.25);display:block;background:#02121c}
 .small{font-size:clamp(11px,1.8vw,13px);opacity:.78;line-height:1.7;max-width:min(640px,92vw)}
 .tt{color:var(--yellow)}
 .rowbtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
@@ -147,8 +175,6 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
   </div>
 
   <div class="screen" id="scTitle">
-    <h1 class="logo">JELLYFISH HUNTER</h1>
-    <div class="sub">DEEP SEA BULLET STORM</div>
     <div class="menu">
       <button class="btn primary" id="btnStart">出撃する<span class="tag">START</span></button>
       <button class="btn" id="btnDiff">難易度：NORMAL<span class="tag" id="diffTag">ハードは1周クリアで解放</span></button>
@@ -163,31 +189,33 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
     <h1 class="logo" style="font-size:clamp(24px,4vw,44px)">あそびかた</h1>
     <div class="card">
       <div class="keys">
-        <b>W A S D</b><span>自機の移動</span>
-        <b>左クリック長押し＋なぞる</b><span>敵をロックオン（複数可・マークは消えない）</span>
-        <b>左クリックを離す</b><span>ロックオンレーザー発射＋僚機が一斉ホーミング射撃</span>
-        <b>スペース</b><span>通常ショット ON / OFF（正面へオートファイア・威力は最弱）</span>
-        <b>右クリック</b><span>ボム（画面内の敵と弾を全消し・僚機を1体消費・CT5秒）</span>
-        <b>M</b><span>サウンド ミュート切替</span>
-        <b>F</b><span>全画面表示 ON / OFF</span>
-        <b>P / ESC</b><span>ポーズ</span>
+        <b>いどう</b><span>W ⬆️　A ⬅️　S ⬇️　D ➡️</span>
+        <b>左クリックながおし＋なぞる</b><span>敵をロックオン</span>
+        <b>左クリックをはなす</b><span>ロックオンレーザーをはっしゃ</span>
+        <b>スペース</b><span>じどうショット ON / OFF</span>
+        <b>右クリック</b><span>ボム（味方のかずが3つへる）</span>
+        <b>M</b><span>サウンド ON / OFF</span>
+        <b>F</b><span>ぜんがめん ON / OFF</span>
+        <b>P / ESC</b><span>ゲームをとめる</span>
       </div>
     </div>
     <div class="card">
       <div class="small" style="text-align:left;max-width:none">
-        <b class="tt">■ 味方化システム</b><br>
-        ロックオンした雑魚敵には<span class="tt">味方化マーク</span>が付きます。マーク付きの敵を倒すと（どの攻撃で倒してもOK）
-        その敵が<span class="tt">僚機</span>になり、自機の周りを回りながら自動でホーミング弾を撃ちます。最大10体。<br><br>
-        <b class="tt">■ 僚機＝ライフ</b><br>
-        被弾すると僚機を1体失います。僚機0で被弾するとゲームオーバー、ステージ最初からやり直しです。<br><br>
-        <b class="tt">■ ロックオン中のトレードオフ</b><br>
-        なぞっている間は僚機の攻撃が止まります。クリックを離した瞬間、レーザーと僚機弾が一斉に飛びます。<br><br>
-        <b class="tt">■ 難易度</b><br>
-        <b>NORMAL</b>：最初から選べます。<br>
-        <b>HARD</b>（1周クリアで解放）：敵の数 2倍・耐久 1.55倍・弾速と弾幕量を強化。
-        中ボスとボスの耐久は<span class="tt">5倍</span>。群れの切れ目には増援が差し込まれ、休む間がありません。<br>
-        <b>NIGHTMARE</b>（HARD クリアで解放）：敵の数 3倍・ボス耐久 6倍。
-        敵は弾幕を二重に重ね、エイは全方位弾を撒きます。
+        <b class="tt">🪼 敵を味方にしよう！</b><br>
+        敵をロックオンしてたおすと、その敵が味方になります！<br>
+        味方はダイバーのまわりをぐるぐるまわりながら、敵をじどうでこうげきしてくれます。<br>
+        味方はさいだい<span class="tt">10たい</span>！<br><br>
+
+        <b class="tt">❤️ 味方がライフになる！</b><br>
+        このゲームでは、味方がダイバーのライフです。<br>
+        敵のこうげきにあたると、味方を1たいうしないます。<br>
+        味方が0たいのときにこうげきをうけるとゲームオーバー！<br><br>
+
+        <b class="tt">🎯 ロックオンしていっきにこうげき！</b><br>
+        敵をなぞってロックオンしているあいだは、味方のこうげきがとまります。<br>
+        そして……クリックをはなす！<br>
+        すると、ロックオンレーザーと味方のこうげきがいっせいにはっしゃされます。<br>
+        たくさんの敵をロックオンしてから、いっきにこうげきするのがポイントです！
       </div>
     </div>
     <button class="btn" id="btnHelpBack" style="width:min(300px,80vw)">もどる</button>
@@ -231,7 +259,10 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
   </div>
 
   <div class="screen" id="scEnd">
-    <canvas id="endCanvas" width="1280" height="720"></canvas>
+    <div class="endWrap">
+      <img id="endImage" src="images/ending.webp" alt="ボスクラゲを倒し、仲間たちと勝利を祝うダイバー">
+      <div class="theEnd">THE END</div>
+    </div>
     <div class="small" id="endText"></div>
     <div class="rowbtns"><button class="btn primary" id="btnEndTitle">タイトルへ</button></div>
   </div>
@@ -2505,131 +2536,14 @@ const Stage = {
  * 18. エンディング（1枚絵）
  * ------------------------------------------------------------------ */
 const Ending = {
-  render() {
-    const cv = $('endCanvas'), c = cv.getContext('2d');
-    const W = cv.width, H = cv.height;
-    /* --- 背景：海中のグラデーション --- */
-    const g = c.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#7fdcf2'); g.addColorStop(.22, '#2f9dc8');
-    g.addColorStop(.58, '#0f5a86'); g.addColorStop(1, '#041b2e');
-    c.fillStyle = g; c.fillRect(0, 0, W, H);
-    /* --- 水面のきらめき --- */
-    c.save(); c.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < 70; i++) {
-      const x = Math.random() * W, y = Math.random() * H * .17, w = rand(14, 90);
-      c.fillStyle = `rgba(255,255,255,${rand(.05, .3).toFixed(3)})`;
-      c.beginPath(); c.ellipse(x, y, w, rand(1.5, 5), 0, 0, 6.2832); c.fill();
-    }
-    /* --- 光芒 --- */
-    for (let i = 0; i < 11; i++) {
-      const x = rand(-100, W + 100), w = rand(40, 150);
-      const lg = c.createLinearGradient(x, 0, x + rand(-160, 160), H);
-      lg.addColorStop(0, 'rgba(210,248,255,.34)');
-      lg.addColorStop(.55, 'rgba(160,230,255,.10)');
-      lg.addColorStop(1, 'rgba(120,210,255,0)');
-      c.fillStyle = lg;
-      c.beginPath(); c.moveTo(x, 0); c.lineTo(x + w, 0);
-      c.lineTo(x + w + rand(-190, 190), H); c.lineTo(x + rand(-190, 190), H);
-      c.closePath(); c.fill();
-    }
-    c.restore();
-    /* --- 3Dモデルによる勝利の集合写真を重ねる --- */
-    if (this.snapshot) c.drawImage(this.snapshot, 0, 0, W, H);
-    /* --- 前景：昆布のシルエット --- */
-    c.save();
-    c.fillStyle = 'rgba(2,24,34,.82)';
-    for (let i = 0; i < 22; i++) {
-      const x = rand(-40, W + 40), h = rand(H * .16, H * .44), w = rand(10, 30);
-      c.beginPath(); c.moveTo(x, H);
-      c.bezierCurveTo(x + rand(-60, 60), H - h * .5, x + rand(-70, 70), H - h * .8, x + rand(-30, 30), H - h);
-      c.lineTo(x + w + rand(-20, 20), H - h * .96);
-      c.bezierCurveTo(x + w + rand(-60, 60), H - h * .72, x + w + rand(-50, 50), H - h * .38, x + w, H);
-      c.closePath(); c.fill();
-    }
-    c.restore();
-    /* --- 泡 --- */
-    for (let i = 0; i < 130; i++) {
-      const x = Math.random() * W, y = Math.random() * H, r = rand(1.5, 11);
-      c.beginPath(); c.arc(x, y, r, 0, 6.2832);
-      c.fillStyle = `rgba(255,255,255,${rand(.06, .3).toFixed(3)})`; c.fill();
-      c.beginPath(); c.arc(x - r * .3, y - r * .3, r * .3, 0, 6.2832);
-      c.fillStyle = 'rgba(255,255,255,.4)'; c.fill();
-    }
-    /* --- ビネット --- */
-    const vg = c.createRadialGradient(W / 2, H * .46, H * .22, W / 2, H * .5, H * .92);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(1,12,22,.72)');
-    c.fillStyle = vg; c.fillRect(0, 0, W, H);
-    /* --- テキスト --- */
-    c.textAlign = 'center';
-    c.save();
-    c.shadowColor = 'rgba(0,0,0,.85)'; c.shadowBlur = 26;
-    const tg = c.createLinearGradient(0, H * .70, 0, H * .86);
-    tg.addColorStop(0, '#ffffff'); tg.addColorStop(.5, '#bdf1ff'); tg.addColorStop(1, '#ffe14d');
-    c.fillStyle = tg;
-    c.font = '800 76px "Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif';
-    c.fillText('THE END', W / 2, H * .795);
-    c.font = '600 25px "Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif';
-    c.fillStyle = 'rgba(232,250,255,.94)';
-    c.fillText('ボスクラゲを倒し、海に光がもどった。', W / 2, H * .865);
-    c.font = '500 18px system-ui,sans-serif';
-    c.fillStyle = 'rgba(190,230,245,.8)';
-    c.fillText('JELLYFISH HUNTER', W / 2, H * .915);
-    c.restore();
-  },
-
-  /* 自機と僚機たちの3Dスナップショットを作る */
-  async snapshot3D(wingKinds) {
-    const w = 1280, h = 720;
-    const es = new THREE.Scene();
-    es.add(new THREE.HemisphereLight(0xcdf3ff, 0x0b3550, 2.0));
-    const dl = new THREE.DirectionalLight(0xffffff, 2.4); dl.position.set(-1, 2, 3); es.add(dl);
-    const dl2 = new THREE.DirectionalLight(0x8fd6ff, 1.2); dl2.position.set(2, -1, -2); es.add(dl2);
-    const ec = new THREE.PerspectiveCamera(42, w / h, .1, 200);
-    ec.position.set(0, .4, 13); ec.lookAt(0, .1, 0);
-
-    const diver = instantiate('player');
-    diver.scale.setScalar(3.2);
-    diver.rotation.set(-.12, Math.PI * 0.16, .12);   // 少し上を向いて浮上するポーズ
-    diver.position.set(-.4, -.2, 2.2);
-    es.add(diver);
-
-    const kinds = wingKinds.length ? wingKinds : ['jelly', 'jelly', 'jelly'];
-    const n = Math.min(10, Math.max(3, kinds.length));
-    for (let i = 0; i < n; i++) {
-      const o = instantiate(kinds[i % kinds.length]);
-      const a = (i / n) * Math.PI * 2;
-      o.scale.setScalar(rand(1.05, 1.5));
-      o.position.set(Math.cos(a) * rand(3.4, 5.4), Math.sin(a * 1.3) * rand(1.5, 2.8) + .6, rand(-1.4, 1.0));
-      o.rotation.set(rand(-.2, .2), Math.PI + rand(-.6, .6), rand(-.3, .3));
-      es.add(o);
-    }
-
-    // 撮影専用のレンダラで透過PNGを作る（メインのレンダラ設定に影響を与えない）
-    let url = null;
-    try {
-      const snapR = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-      snapR.setPixelRatio(1);
-      snapR.setSize(w, h, false);
-      snapR.outputColorSpace = THREE.SRGBColorSpace;
-      snapR.toneMapping = THREE.ACESFilmicToneMapping;
-      snapR.toneMappingExposure = 1.2;
-      snapR.setClearAlpha(0);
-      snapR.render(es, ec);
-      url = snapR.domElement.toDataURL('image/png');
-      snapR.dispose();
-      snapR.forceContextLoss && snapR.forceContextLoss();
-    } catch (e) { console.warn('ending snapshot failed', e); }
-
-    // 後片付け（ジオメトリ／テクスチャは共有なのでマテリアルのみ破棄）
-    es.traverse(o => { if (o.isMesh) { const m = o.material; (Array.isArray(m) ? m : [m]).forEach(x => x.dispose()); } });
-    if (!url) return null;
-
-    return new Promise(res => {
-      const img = new Image();
-      img.onload = () => { this.snapshot = img; res(img); };
-      img.onerror = () => res(null);
-      img.src = url;
-    });
+  /* 1枚絵は images/ending.webp をそのまま表示する（HTML 側の #endImage）。
+     以前は Canvas2D で背景を描き 3D モデルを合成していたが、
+     用意されたイラストに置き換えたので描画処理は不要になった。 */
+  preload() {
+    // クリア時に読み込み待ちで白く出ないよう、起動時に先読みしておく
+    const img = new Image();
+    img.src = 'images/ending.webp';
+    this.img = img;
   },
 };
 
@@ -2735,8 +2649,7 @@ const Game = {
     UI.fade(true);
     setTimeout(async () => {
       UI.showHud(false);
-      try { await Ending.snapshot3D(kinds); } catch (e) { Ending.snapshot = null; }
-      Ending.render();
+      // 1枚絵は HTML の <img> で表示するので、ここで描く処理は不要
       const dl = (DIFF[this.diff] || DIFF.normal).label;
       $('endText').innerHTML = firstClear
         ? 'おめでとう！<b class="tt">武器セットアップ</b>と<b class="tt">HARD</b>が解放されました。<br>タイトル画面から装備を選んで、もう一度潜れます。'
@@ -2991,6 +2904,7 @@ async function boot() {
   }
   Player.init();
   Boss.build();
+  Ending.preload();
   Stage.build();
   UI.updateWingmen();
   Menu.refresh();

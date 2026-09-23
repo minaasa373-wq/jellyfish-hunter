@@ -457,6 +457,7 @@ const Sound = {
     this.master.gain.value = this.muted ? 0 : 0.9;
     this.master.connect(this.ctx.destination);
     this.sfxGain   = this.ctx.createGain(); this.sfxGain.gain.value   = 0.85; this.sfxGain.connect(this.master);
+    this.loadSfx();
   },
   resume() { this.init(); if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); },
   setMuted(m) {
@@ -488,10 +489,48 @@ const Sound = {
     g.gain.exponentialRampToValueAtTime(.0001, t + dur);
     src.connect(f); f.connect(g); g.connect(this.sfxGain); src.start(t);
   },
+  /* --- 素材の効果音 --------------------------------------------------
+     短いので decodeAudioData でメモリに展開し、重ねて鳴らせるようにする。
+     合成音と違って長さがあるため、同じ音が一度に何本も重なると潰れる。
+     ロックオンは一括ロックで10回、レーザーは斉射で10発が一気に呼ばれるので、
+     最短間隔（gap 秒）を設けて鳴らしすぎを抑えている。音量と間隔はここだけで調整可能。 */
+  SFX: {
+    lock:  { url: 'audio/se_lock.wav',  vol: .55, gap: .045 },
+    laser: { url: 'audio/se_laser.wav', vol: .50, gap: .090 },
+  },
+  buffers: {}, _sfxT: {},
+  loadSfx() {
+    if (!this.ctx) return;
+    for (const k in this.SFX) {
+      if (k in this.buffers) continue;          // 二重読み込み防止
+      this.buffers[k] = null;
+      fetch(this.SFX[k].url)
+        .then(r => r.arrayBuffer())
+        .then(a => this.ctx.decodeAudioData(a))
+        .then(buf => { this.buffers[k] = buf; })
+        .catch(() => { this.buffers[k] = null; });   // 失敗しても合成音で鳴り続ける
+    }
+  },
+  /* 素材を鳴らす。鳴らせた（または間隔制限で意図的に抑えた）とき true を返し、
+     呼び出し側は合成音へフォールバックしない。 */
+  sample(key, rate = 1) {
+    const def = this.SFX[key], buf = this.buffers[key];
+    if (!this.ctx || !buf) return false;
+    if (this.muted) return true;
+    const t = this.ctx.currentTime;
+    if (t - (this._sfxT[key] ?? -9) < def.gap) return true;
+    this._sfxT[key] = t;
+    const src = this.ctx.createBufferSource(); src.buffer = buf; src.playbackRate.value = rate;
+    const g = this.ctx.createGain(); g.gain.value = def.vol;
+    src.connect(g); g.connect(this.sfxGain); src.start(t);
+    return true;
+  },
+
   // --- 効果音（仕様書で列挙されたもの） ---
-  sfxLock()      { this.tone(1180, .07, 'square', .10, 1620); },
-  sfxLockFull()  { this.tone(1500, .12, 'square', .13, 2100); },
-  sfxLaser()     { this.tone(880, .26, 'sawtooth', .20, 190); this.noise(.2, .12, 2600, 2); },
+  sfxLock()      { if (this.sample('lock')) return; this.tone(1180, .07, 'square', .10, 1620); },
+  // 上限に達したロックだけ少し高く鳴らして「もう入らない」ことを伝える
+  sfxLockFull()  { if (this.sample('lock', 1.18)) return; this.tone(1500, .12, 'square', .13, 2100); },
+  sfxLaser()     { if (this.sample('laser')) return; this.tone(880, .26, 'sawtooth', .20, 190); this.noise(.2, .12, 2600, 2); },
   sfxHoming()    { this.tone(520, .16, 'triangle', .12, 900); },
   sfxShot()      { this.tone(1400, .045, 'square', .045, 780); },
   sfxHitEnemy()  { this.noise(.1, .16, 1500, 1.4); },
@@ -3274,6 +3313,7 @@ async function boot() {
   Ending.preload();
   Stage.build();
   UI.updateWingmen();
+  Sound.init();               // 効果音の素材をデコードしておく（ctx は suspended のままでよい）
   Sound.initMusic();          // タイトル表示中に BGM を先読みしておく
   Menu.refresh();
   Game.toTitle();

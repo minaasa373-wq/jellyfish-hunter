@@ -171,7 +171,7 @@ h1.logo.danger{background-image:linear-gradient(180deg,#ffffff,#ffb3ba 42%,#ff5a
     <div class="sub">DEEP SEA BULLET STORM</div>
     <div id="bar"><i id="loadFill"></i></div>
     <div class="hint" id="loadTxt">LOADING… 0%</div>
-    <div class="small" style="opacity:.5">3Dモデルを読み込んでいます（約32MB）。初回は少し時間がかかります。</div>
+    <div class="small" style="opacity:.5">3Dモデルを読み込んでいます（約34MB）。初回は少し時間がかかります。</div>
   </div>
 
   <div class="screen" id="scTitle">
@@ -534,7 +534,7 @@ const floorGeo = new THREE.PlaneGeometry(460, 700, 40, 56);
   floorGeo.computeVertexNormals();
 }
 const seaFloor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ color: 0x0c3a50, roughness: 1, metalness: 0, flatShading: true }));
-seaFloor.rotation.x = -Math.PI / 2; seaFloor.position.y = -32; scene.add(seaFloor);
+seaFloor.rotation.x = -Math.PI / 2; seaFloor.position.y = -27; scene.add(seaFloor);
 
 /* --- 岩（インスタンス） --- */
 const rockGeo = new THREE.ConeGeometry(1, 1, 6, 1);
@@ -545,7 +545,7 @@ const rocks = new THREE.InstancedMesh(rockGeo, rockMat, ROCKS);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), t = new THREE.Vector3();
   for (let i = 0; i < ROCKS; i++) {
     const side = Math.random() < .5 ? -1 : 1;
-    t.set(side * rand(13, 96), -32 + rand(-1, 3), rand(-620, 40));
+    t.set(side * rand(24, 110), -27 + rand(-1, 3), rand(-620, 40));
     const h = rand(4, 24); s.set(rand(2.4, 8), h, rand(2.4, 8));
     q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand(0, 6.28));
     m.compose(t, q, s); rocks.setMatrixAt(i, m);
@@ -595,20 +595,91 @@ const rayGroup = new THREE.Group(); scene.add(rayGroup);
   }
 }
 
-/* --- 昆布（パララックス用の飾り） --- */
-const kelpGroup = new THREE.Group(); scene.add(kelpGroup);
-{
-  const kg = new THREE.PlaneGeometry(.7, 15, 1, 7);
-  const km = new THREE.MeshStandardMaterial({ color: 0x1b6a4a, roughness: .95, side: THREE.DoubleSide, transparent: true, opacity: .5 });
-  for (let i = 0; i < 46; i++) {
-    const k = new THREE.Mesh(kg, km);
-    const side = Math.random() < .5 ? -1 : 1;
-    k.position.set(side * rand(11, 44), -32 + 7, rand(-620, 30));
-    k.userData.ph = rand(0, 6.28); k.userData.base = k.position.x;
-    k.scale.setScalar(rand(.7, 1.9));
-    kelpGroup.add(k);
-  }
-}
+/* --- 海底の飾り（サンゴ・海藻・遺跡・貝殻・沈没船）---
+   1種類につき InstancedMesh 1つにまとめるので、200体以上置いても
+   ドローコールは6回で済む。自機が進むと奥へ巻き戻して使い回す。 */
+const FLOOR_Y = -27;
+const PROP_SPAN = 900;                 // この距離ぶんを繰り返し使う
+const propGroup = new THREE.Group(); scene.add(propGroup);
+const PROP_DEF = {
+  // 小物は道沿いに、遺跡と沈没船は遠景のシルエットとして少なく大きく。
+  coral_red:  { count: 30, w: [5, 11],  x: [5, 42], sink: .10, tilt: .13 },
+  coral_blue: { count: 30, w: [5, 11],  x: [5, 42], sink: .10, tilt: .13 },
+  kelp:       { count: 34, w: [6, 14],  x: [5, 46], sink: .06, tilt: .10 },
+  shell:      { count: 22, w: [4, 9],   x: [4, 32], sink: .22, tilt: .20 },
+  ruins:      { count: 8,  w: [11, 22], x: [22, 62], sink: .12, tilt: .05 },
+  wreck:      { count: 5,  w: [14, 26], x: [26, 68], sink: .14, tilt: .07 },
+};
+const Props = {
+  meshes: [],
+  /* glb から素のジオメトリを取り出し、原点を「底面の中心」に揃える。
+     こうしておくと y=0 に置くだけで海底にきれいに接地する。 */
+  bake(gltfScene) {
+    let geo = null, mat = null;
+    gltfScene.updateMatrixWorld(true);
+    gltfScene.traverse(o => {
+      if (o.isMesh && !geo) { geo = o.geometry.clone(); geo.applyMatrix4(o.matrixWorld); mat = o.material; }
+    });
+    if (!geo) return null;
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox, c = bb.getCenter(new THREE.Vector3());
+    geo.translate(-c.x, -bb.min.y, -c.z);
+    geo.computeBoundingBox();
+    return { geo, mat, size: geo.boundingBox.getSize(new THREE.Vector3()) };
+  },
+  build(loaded) {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(),
+          e = new THREE.Euler(), sv = new THREE.Vector3(), tv = new THREE.Vector3();
+    for (const key in PROP_DEF) {
+      const src = loaded[key]; if (!src) continue;
+      const d = PROP_DEF[key];
+      const mat = src.mat.clone();
+      mat.side = THREE.FrontSide; mat.metalness = 0; mat.roughness = Math.max(mat.roughness ?? .9, .75);
+      if (mat.map) {
+        mat.map.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+        // 海底は暗く霧も濃いので、テクスチャの色をそのまま弱く自己発光させて
+        // サンゴの赤や青が沈まないようにする。
+        mat.emissiveMap = mat.map;
+        mat.emissive = new THREE.Color(0xffffff);
+        mat.emissiveIntensity = .34;
+      }
+      const inst = new THREE.InstancedMesh(src.geo, mat, d.count);
+      inst.frustumCulled = false;      // 自前で巻き戻すので中心が動かない
+      const zs = [];
+      for (let i = 0; i < d.count; i++) {
+        const side = Math.random() < .5 ? -1 : 1;
+        const w = rand(d.w[0], d.w[1]);              // モデルは横幅1に正規化済み
+        const z = rand(-PROP_SPAN, 40);
+        zs.push(z);
+        tv.set(side * rand(d.x[0], d.x[1]), FLOOR_Y - src.size.y * w * d.sink * rand(.4, 1), z);
+        e.set(rand(-d.tilt, d.tilt), rand(0, Math.PI * 2), rand(-d.tilt, d.tilt));
+        q.setFromEuler(e);
+        sv.set(w, w * rand(.85, 1.2), w);
+        m.compose(tv, q, sv); inst.setMatrixAt(i, m);
+      }
+      inst.instanceMatrix.needsUpdate = true;
+      propGroup.add(inst);
+      this.meshes.push({ inst, zs, count: d.count });
+    }
+  },
+  /* 自機の後方へ抜けたものを、まとめて手前へ巻き戻す */
+  recycle(pz) {
+    const m = new THREE.Matrix4();
+    for (const g of this.meshes) {
+      let dirty = false;
+      for (let i = 0; i < g.count; i++) {
+        if (g.zs[i] > pz + 60) {
+          g.zs[i] -= PROP_SPAN;
+          g.inst.getMatrixAt(i, m);
+          m.elements[14] = g.zs[i];
+          g.inst.setMatrixAt(i, m);
+          dirty = true;
+        }
+      }
+      if (dirty) g.inst.instanceMatrix.needsUpdate = true;
+    }
+  },
+};
 
 /* ------------------------------------------------------------------ *
  * 5. アセット読み込み（models/ 内の glb）
@@ -622,6 +693,18 @@ const MODEL_FILES = {
   boss:    'models/Boss_Jellyfish.glb',
 };
 const MODELS = {};   // key -> { root:Object3D(prototype), size:Vector3 }
+
+/* 海底の飾り。キャラと違って個体ごとの制御は要らないので、
+   ジオメトリだけ取り出して InstancedMesh にまとめる。 */
+const PROP_FILES = {
+  coral_red:  'models/props/coral_red.glb',
+  coral_blue: 'models/props/coral_blue.glb',
+  kelp:       'models/props/kelp.glb',
+  ruins:      'models/props/ruins.glb',
+  shell:      'models/props/shell.glb',
+  wreck:      'models/props/wreck.glb',
+};
+const PROPS = {};
 
 function prepModel(gltf) {
   const root = gltf.scene;
@@ -682,18 +765,24 @@ function setOpacity(obj, v) {
 }
 
 function loadAssets(onProgress) {
-  const keys = Object.keys(MODEL_FILES);
   const loader = new GLTFLoader();
-  const done = {}; let totalPct = 0;
-  const pct = () => {
-    let s = 0; keys.forEach(k => s += (done[k] || 0));
-    return s / keys.length;
-  };
-  return Promise.all(keys.map(k => new Promise((res, rej) => {
-    loader.load(MODEL_FILES[k],
-      g => { MODELS[k] = prepModel(g); done[k] = 1; onProgress(pct()); res(); },
-      ev => { if (ev.total) { done[k] = clamp(ev.loaded / ev.total, 0, 1); onProgress(pct()); } },
-      err => rej(new Error(MODEL_FILES[k] + ' の読み込みに失敗しました')));
+  const jobs = [];
+  for (const k in MODEL_FILES) jobs.push({ k, url: MODEL_FILES[k], prop: false });
+  for (const k in PROP_FILES)  jobs.push({ k, url: PROP_FILES[k],  prop: true });
+  const done = {};
+  // 飾りはキャラに比べて桁違いに軽いので、進捗はファイルサイズ比で重み付けする
+  const weight = j => j.prop ? .25 : 1;
+  const totalW = jobs.reduce((a, j) => a + weight(j), 0);
+  const pct = () => jobs.reduce((a, j) => a + (done[j.url] || 0) * weight(j), 0) / totalW;
+  return Promise.all(jobs.map(j => new Promise((res, rej) => {
+    loader.load(j.url,
+      g => {
+        if (j.prop) { const b = Props.bake(g.scene); if (b) PROPS[j.k] = b; }
+        else MODELS[j.k] = prepModel(g);
+        done[j.url] = 1; onProgress(pct()); res();
+      },
+      ev => { if (ev.total) { done[j.url] = clamp(ev.loaded / ev.total, 0, 1); onProgress(pct()); } },
+      err => rej(new Error(j.url + ' の読み込みに失敗しました')));
   })));
 }
 
@@ -2717,12 +2806,8 @@ const Game = {
       }
       p.needsUpdate = true;
     }
-    // 岩・昆布の巻き戻し
-    kelpGroup.children.forEach(k => {
-      k.userData.ph += dt;
-      k.rotation.z = Math.sin(k.userData.ph * .8) * .16;
-      if (k.position.z > pz + 40) k.position.z -= 660;
-    });
+    // 海底の飾りを巻き戻す
+    Props.recycle(pz);
     // マリンスノー
     {
       const pos = snowGeo.attributes.position.array;
@@ -2864,7 +2949,7 @@ function toggleFullscreen() {
 }
 
 /* デバッグ／調整用フック（コンソールから JH.CFG などを触れる） */
-window.JH = { THREE, CFG, DIFF, DIFF_ORDER, Save, Sound, Game, Player, Wingmen, Enemies, Boss, LockOn, Bullets, Sched, Stage, Ending, UI, MODELS, scene, camera, renderer };
+window.JH = { THREE, CFG, DIFF, DIFF_ORDER, Save, Sound, Game, Player, Wingmen, Enemies, Boss, LockOn, Bullets, Sched, Stage, Ending, UI, MODELS, PROPS, Props, scene, camera, renderer };
 
 const clock = new THREE.Clock();
 function loop() {
@@ -2904,6 +2989,7 @@ async function boot() {
   }
   Player.init();
   Boss.build();
+  Props.build(PROPS);
   Ending.preload();
   Stage.build();
   UI.updateWingmen();

@@ -265,6 +265,7 @@ Meshy から書き出した元データは1つ 7〜9MB（2048px のベースカ�
 
 ```
 index.html              ゲーム本体（HTML / CSS / JS を1ファイルに同梱）
+ogp.png                 SNS に貼ったときのサムネイル（OGP / Twitter カード用）
 audio/bgm_stage.mp3     ステージBGM（Submerged Patrol・ループ）
 audio/bgm_boss.mp3      ボス戦BGM（Titan of the Trench・ループ）
 audio/fanfare_victory.wav 勝利のファンファーレ（4秒・エンディングで1回）
